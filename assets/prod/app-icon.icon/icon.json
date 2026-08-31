@@ -1,0 +1,23 @@
+{
+  "fill": {
+    "solid": "display-p3:0.09020,0.08235,0.10196,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "t3-code-math.png",
+          "name": "T3 Code Math",
+          "position": {
+            "scale": 1,
+            "translation-in-points": [0, 0]
+          }
+        }
+      ]
+    }
+  ],
+  "supported-platforms": {
+    "circles": ["watchOS"],
+    "squares": "shared"
+  }
+}
