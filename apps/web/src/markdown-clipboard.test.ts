@@ -94,6 +94,46 @@ describe("serializeRenderedMarkdownFragment", () => {
     expect(serializeRenderedMarkdownFragment(asNode(container))).toBe("first line\nsecond line");
   });
 
+  // KaTeX output carries its TeX source on `data-markdown-copy`; the rendered
+  // glyph soup below it must never leak into the copied markdown.
+  it("copies an inline formula as its $$ TeX source", () => {
+    const formula = new FakeElement("SPAN", [], {
+      "data-markdown-copy": "$$e^{i\\pi} = -1$$",
+    }).append(new FakeText("e−1 rendered glyphs"));
+    const container = new FakeElement("DIV").append(formula);
+
+    expect(serializeRenderedMarkdownFragment(asNode(container))).toBe("$$e^{i\\pi} = -1$$");
+  });
+
+  it("copies a formula together with its surrounding prose", () => {
+    const paragraph = new FakeElement("P").append(
+      new FakeText("Euler: "),
+      new FakeElement("SPAN", [], { "data-markdown-copy": "$$e^{i\\pi} = -1$$" }).append(
+        new FakeText("rendered"),
+      ),
+      new FakeText(" holds."),
+    );
+    const container = new FakeElement("DIV").append(paragraph);
+
+    expect(serializeRenderedMarkdownFragment(asNode(container))).toBe(
+      "Euler: $$e^{i\\pi} = -1$$ holds.",
+    );
+  });
+
+  it("copies a display block as $$-fenced TeX between paragraphs", () => {
+    const container = new FakeElement("DIV").append(
+      new FakeElement("P").append(new FakeText("Before")),
+      new FakeElement("DIV", [], { "data-markdown-copy": "$$\n\\frac{1}{2}\n$$\n\n" }).append(
+        new FakeText("rendered glyphs"),
+      ),
+      new FakeElement("P").append(new FakeText("After")),
+    );
+
+    expect(serializeRenderedMarkdownFragment(asNode(container))).toBe(
+      "Before\n\n$$\n\\frac{1}{2}\n$$\n\nAfter",
+    );
+  });
+
   it("uses a rendered card's explicit Markdown copy representation", () => {
     const card = new FakeElement("DIV", [], {
       "data-markdown-copy": "Hello World (Document template)\n\n",

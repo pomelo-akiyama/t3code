@@ -28,6 +28,7 @@ vi.mock("~/lib/openPullRequestLink", () => ({
   useOpenChangeRequestLink: () => vi.fn(),
 }));
 
+import { getMathRuntimePromise } from "../lib/mathRendering";
 import ChatMarkdown, {
   canUseMarkdownFileShellActions,
   hasMarkdownFilePrimaryAction,
@@ -495,5 +496,186 @@ describe("ChatMarkdown Windows file links", () => {
     expect(html).not.toContain("javascript:");
     expect(html).not.toContain("d:alert");
     expect(html).not.toContain("chat-markdown-file-link");
+  });
+});
+
+describe("ChatMarkdown math rendering", () => {
+  // Runs before anything below awaits the runtime: the very first render
+  // kicks off the load and must show the raw text as its Suspense fallback.
+  it("renders the raw text before the math runtime resolves", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd={undefined} text={String.raw`Euler: \(e^{i\pi} = -1\)`} />,
+    );
+
+    expect(html).not.toContain("katex");
+    expect(html).toContain("e^{i\\pi} = -1");
+  });
+
+  it("shares one runtime promise across instances", () => {
+    expect(getMathRuntimePromise()).toBe(getMathRuntimePromise());
+  });
+
+  it.each([true, false])("typesets inline math with parseRawHtml=%s", async (parseRawHtml) => {
+    await getMathRuntimePromise();
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd={undefined}
+        text={String.raw`Euler: \(e^{i\pi} = -1\)`}
+        parseRawHtml={parseRawHtml}
+      />,
+    );
+
+    expect(html).toContain('class="katex"');
+    expect(html).toContain('data-markdown-copy="$$e^{i\\pi} = -1$$"');
+  });
+
+  it.each([true, false])("typesets display math with parseRawHtml=%s", async (parseRawHtml) => {
+    await getMathRuntimePromise();
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd={undefined} text={"\\[\n\\frac{1}{2}\n\\]"} parseRawHtml={parseRawHtml} />,
+    );
+
+    expect(html).toContain("chat-markdown-math-block");
+    expect(html).toContain("katex-display");
+  });
+
+  it.each([true, false])(
+    "typesets a math fence without the extended remark chain with parseRawHtml=%s",
+    async (parseRawHtml) => {
+      await getMathRuntimePromise();
+      const html = renderToStaticMarkup(
+        <ChatMarkdown
+          cwd={undefined}
+          text={"```math\n\\frac{1}{2}\n```"}
+          parseRawHtml={parseRawHtml}
+        />,
+      );
+
+      expect(html).toContain("chat-markdown-math-block");
+      expect(html).toContain('class="katex"');
+    },
+  );
+
+  it("typesets native $$ math, inline and display", async () => {
+    await getMathRuntimePromise();
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd={undefined} text={"so $$E=mc^2$$ and\n\n$$\na^2+b^2=c^2\n$$"} />,
+    );
+
+    expect(html).toContain("chat-markdown-math-inline");
+    expect(html).toContain("chat-markdown-math-block");
+  });
+
+  it("still renders a file chip in a message that also has math", async () => {
+    await getMathRuntimePromise();
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={"[Source](/tmp/project/src/main.ts)\n\n$$\nx^2\n$$"}
+      />,
+    );
+
+    expect(html).toContain("<button");
+    expect(html).toContain('aria-haspopup="menu"');
+    expect(html).toContain("chat-markdown-math-block");
+  });
+
+  it("renders Codex directives in a message that also has math", async () => {
+    await getMathRuntimePromise();
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={`Created :codex-file-citation{path="/tmp/project/report.xlsx"}.\n\n$$\nx^2\n$$\n\n${ARTIFACT_TEMPLATE_DIRECTIVE}`}
+        onUseArtifactTemplate={() => undefined}
+      />,
+    );
+
+    expect(html).not.toContain("codex-file-citation");
+    expect(html).toContain("chat-markdown-file-link");
+    expect(html).toContain("chat-markdown-math-block");
+    expect(html).toContain("chat-markdown-artifact-template");
+  });
+
+  it("keeps non-math dollar text plain even after the runtime loaded", async () => {
+    await getMathRuntimePromise();
+    for (const text of ["kill -9 $$", "costs $$ and more $$", "$HOME and $PATH", "$20 or $30"]) {
+      const html = renderToStaticMarkup(<ChatMarkdown cwd={undefined} text={text} />);
+      expect(html).not.toContain("katex");
+    }
+  });
+
+  it("renders invalid TeX without throwing", async () => {
+    await getMathRuntimePromise();
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd={undefined} text={String.raw`\(\notarealcommand{x\)`} />,
+    );
+
+    expect(html).toContain("katex");
+  });
+
+  it("still sanitizes raw HTML in a message with math", async () => {
+    await getMathRuntimePromise();
+    const html = renderToStaticMarkup(
+      <ChatMarkdown
+        cwd={undefined}
+        text={"<script>alert(1)</script>\n\nand \\(x^2\\)"}
+        parseRawHtml
+      />,
+    );
+
+    expect(html).not.toContain("<script");
+    expect(html).toContain('class="katex"');
+  });
+
+  it("keeps a streaming half-open math fence as a plain code block", async () => {
+    await getMathRuntimePromise();
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd={undefined} text={"```math\n\\frac{1}{2}"} isStreaming />,
+    );
+
+    expect(html).not.toContain("katex");
+    expect(html).toContain("chat-markdown-codeblock");
+  });
+
+  it.each([true, false])(
+    "still typesets an earlier closed fence identical to the streaming tail with parseRawHtml=%s",
+    async (parseRawHtml) => {
+      await getMathRuntimePromise();
+      const html = renderToStaticMarkup(
+        <ChatMarkdown
+          cwd={undefined}
+          text={"```math\nx^2\n```\n\nbetween\n\n```math\nx^2"}
+          isStreaming
+          parseRawHtml={parseRawHtml}
+        />,
+      );
+
+      // The closed fence typesets; only the trailing unterminated fence
+      // falls back to a code block.
+      expect(html).toContain("chat-markdown-math-block");
+      expect(html.match(/chat-markdown-codeblock[" ]/g)).toHaveLength(1);
+    },
+  );
+
+  it("still typesets an earlier closed $$ block identical to the streaming tail", async () => {
+    await getMathRuntimePromise();
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd={undefined} text={"$$\nE=mc^2\n$$\n\nbetween\n\n$$\nE=mc^2"} isStreaming />,
+    );
+
+    expect(html).toContain("chat-markdown-math-block");
+    expect(html).toContain("chat-markdown-codeblock");
+    // Exactly one block typesets: the MathBlock wrapper's own class list also
+    // mentions katex-display, so match KaTeX's output class attribute.
+    expect(html.match(/class="katex-display"/g)).toHaveLength(1);
+  });
+
+  it("keeps a streaming half-open $$ block as raw text", () => {
+    const html = renderToStaticMarkup(
+      <ChatMarkdown cwd={undefined} text={"$$\nE=mc"} isStreaming />,
+    );
+
+    expect(html).not.toContain("katex");
+    expect(html).toContain("E=mc");
   });
 });

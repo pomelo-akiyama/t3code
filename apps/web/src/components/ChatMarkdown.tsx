@@ -104,6 +104,13 @@ import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
 import { getSyntaxHighlighterPromise } from "../lib/syntaxHighlighting";
+import { analyzeMathMarkdown } from "../markdown-math";
+import {
+  MathMarkdown,
+  renderDisplayMath,
+  renderInlineMath,
+  type MathRemarkPluginSegments,
+} from "../markdown-math-rendering";
 import { RenderErrorBoundary } from "./RenderErrorBoundary";
 import { useTheme } from "../hooks/useTheme";
 import { getClientSettings } from "../hooks/useSettings";
@@ -372,23 +379,36 @@ const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
   },
 } satisfies Parameters<typeof rehypeSanitize>[0];
 
-const CHAT_MARKDOWN_REMARK_PLUGINS = [
+const CHAT_MARKDOWN_REMARK_PLUGINS_BEFORE_MATH = [
   remarkGfm,
   remarkGithubAlerts,
   remarkNormalizeListItemIndentation,
   remarkCodexDirectives,
+] satisfies NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
+
+const CHAT_MARKDOWN_REMARK_PLUGINS_AFTER_MATH = [
   remarkPreserveCodeMeta,
   remarkNormalizeLinksAndTagInlineCode,
 ] satisfies NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
 
+const CHAT_MARKDOWN_MATH_REMARK_PLUGIN_SEGMENTS = {
+  beforeMath: CHAT_MARKDOWN_REMARK_PLUGINS_BEFORE_MATH,
+  afterMath: CHAT_MARKDOWN_REMARK_PLUGINS_AFTER_MATH,
+} satisfies MathRemarkPluginSegments;
+
+const CHAT_MARKDOWN_MATH_REMARK_PLUGIN_SEGMENTS_WITH_BREAKS = {
+  beforeMath: [...CHAT_MARKDOWN_REMARK_PLUGINS_BEFORE_MATH, remarkBreaks],
+  afterMath: CHAT_MARKDOWN_REMARK_PLUGINS_AFTER_MATH,
+} satisfies MathRemarkPluginSegments;
+
+const CHAT_MARKDOWN_REMARK_PLUGINS = [
+  ...CHAT_MARKDOWN_REMARK_PLUGINS_BEFORE_MATH,
+  ...CHAT_MARKDOWN_REMARK_PLUGINS_AFTER_MATH,
+] satisfies NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
+
 const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS = [
-  remarkGfm,
-  remarkGithubAlerts,
-  remarkNormalizeListItemIndentation,
-  remarkCodexDirectives,
-  remarkBreaks,
-  remarkPreserveCodeMeta,
-  remarkNormalizeLinksAndTagInlineCode,
+  ...CHAT_MARKDOWN_MATH_REMARK_PLUGIN_SEGMENTS_WITH_BREAKS.beforeMath,
+  ...CHAT_MARKDOWN_REMARK_PLUGINS_AFTER_MATH,
 ] satisfies NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
 
 const CHAT_MARKDOWN_REHYPE_PLUGINS = [
@@ -1870,6 +1890,8 @@ function ChatMarkdown({
     [environmentId, openInEditor],
   );
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
+  const mathAnalysis = useMemo(() => analyzeMathMarkdown(text), [text]);
+  const openMathFenceTail = mathAnalysis.openMathFenceTail;
   const markdownFileLinkMetaByHref = useMemo(() => {
     const metaByHref = new Map<
       string,
@@ -2329,6 +2351,17 @@ function ChatMarkdown({
         );
       },
       code({ node, children, className, ...props }) {
+        const plainCode = (
+          <code {...props} className={className}>
+            {children}
+          </code>
+        );
+        const inlineMath = renderInlineMath({
+          className,
+          readTex: () => nodeToPlainText(children),
+          fallback: plainCode,
+        });
+        if (inlineMath) return inlineMath;
         if (node?.properties?.dataInlineCode != null) {
           const codeText = nodeToPlainText(children);
           const fileLinkMeta =
@@ -2338,11 +2371,7 @@ function ChatMarkdown({
             return fileLinkChip(fileLinkMeta, `\`${codeText}\``);
           }
         }
-        return (
-          <code {...props} className={className}>
-            {children}
-          </code>
-        );
+        return plainCode;
       },
       img: function MarkdownImage({ node, title, src, alt, ...props }) {
         const imageExpand = use(MarkdownLinkContext) ? undefined : onImageExpand;
@@ -2403,7 +2432,27 @@ function ChatMarkdown({
         }
 
         const language = extractFenceLanguage(codeBlock.className);
-        const fenceTitle = extractFenceTitle(extractPreCodeMeta(node));
+        // A raw fallback avoids recursively routing language-math through the
+        // inline code override when a display formula is still streaming.
+        const plainCodeBlock =
+          language === "math" ? (
+            <pre {...props}>
+              <code className={codeBlock.className}>{codeBlock.code}</code>
+            </pre>
+          ) : (
+            <pre {...props}>{children}</pre>
+          );
+        const displayMath = renderDisplayMath({
+          language,
+          code: codeBlock.code,
+          fallback: plainCodeBlock,
+          isStreaming,
+          openMathFenceTail,
+          nodeStartOffset: node?.position?.start?.offset,
+        });
+        if (displayMath) return displayMath;
+
+        const fenceTitle = language === "math" ? null : extractFenceTitle(extractPreCodeMeta(node));
         return (
           <MarkdownCodeBlock
             code={codeBlock.code}
@@ -2411,8 +2460,8 @@ function ChatMarkdown({
             fenceTitle={fenceTitle}
             theme={resolvedTheme}
           >
-            <RenderErrorBoundary fallback={<pre {...props}>{children}</pre>}>
-              <Suspense fallback={<pre {...props}>{children}</pre>}>
+            <RenderErrorBoundary fallback={plainCodeBlock}>
+              <Suspense fallback={plainCodeBlock}>
                 <SuspenseShikiCodeBlock
                   className={codeBlock.className}
                   code={codeBlock.code}
@@ -2438,6 +2487,7 @@ function ChatMarkdown({
     onUseArtifactTemplate,
     onImageExpand,
     openFileInPanel,
+    openMathFenceTail,
     openInPreferredEditor,
     openChangeRequestLink,
     openExternalLinkInPreview,
@@ -2461,10 +2511,36 @@ function ChatMarkdown({
     ],
     [extraRemarkPlugins, lineBreaks],
   );
+  const mathRemarkPluginSegments = useMemo(() => {
+    const segments = lineBreaks
+      ? CHAT_MARKDOWN_MATH_REMARK_PLUGIN_SEGMENTS_WITH_BREAKS
+      : CHAT_MARKDOWN_MATH_REMARK_PLUGIN_SEGMENTS;
+    return {
+      beforeMath: segments.beforeMath,
+      afterMath: [...segments.afterMath, ...extraRemarkPlugins],
+    } satisfies MathRemarkPluginSegments;
+  }, [extraRemarkPlugins, lineBreaks]);
 
   // react-markdown converts unparsed HTML nodes to text when skipHtml is false.
   // Keep that behavior explicit because literal mode depends on escaping the
   // complete source token instead of dropping it from the rendered message.
+  const rehypePlugins = parseRawHtml ? CHAT_MARKDOWN_REHYPE_PLUGINS : undefined;
+  const baseMarkdown = (
+    <ReactMarkdown
+      remarkPlugins={remarkPlugins}
+      rehypePlugins={rehypePlugins}
+      skipHtml={false}
+      components={markdownComponents}
+      urlTransform={markdownUrlTransform}
+    >
+      {text}
+    </ReactMarkdown>
+  );
+
+  // Messages without delimiter math — the overwhelming majority — render
+  // exactly the tree above and never load any math code. The fallback is that
+  // same tree with the original text, so before the math chunk arrives (or if
+  // it never does) the user sees exactly what they see today.
   return (
     <div
       className={cn(
@@ -2473,15 +2549,14 @@ function ChatMarkdown({
       )}
       onCopy={handleCopy}
     >
-      <ReactMarkdown
-        remarkPlugins={remarkPlugins}
-        rehypePlugins={parseRawHtml ? CHAT_MARKDOWN_REHYPE_PLUGINS : undefined}
-        skipHtml={false}
+      <MathMarkdown
+        analysis={mathAnalysis}
+        fallback={baseMarkdown}
+        remarkPluginSegments={mathRemarkPluginSegments}
+        rehypePlugins={rehypePlugins}
         components={markdownComponents}
         urlTransform={markdownUrlTransform}
-      >
-        {text}
-      </ReactMarkdown>
+      />
     </div>
   );
 }
