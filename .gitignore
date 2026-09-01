@@ -39,20 +39,4 @@ node_modules/
 *.log
 .env*
 !.env.example
-
-# Private deployment and operator material
-/docs/operations/dual-t3-hosting.md
-/docs/operations/fork-server-deployment.md
-/scripts/deploy-fork-server.ts
-/scripts/deploy-fork-server.test.ts
-
-# Credentials and signing material
-*.pem
-*.key
-*.p12
-*.pfx
-*.mobileprovision
-id_rsa*
-id_ed25519*
-.credentials
-.credentials.*
+/.fork-local/

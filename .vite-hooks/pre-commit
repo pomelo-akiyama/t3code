@@ -1,1 +1,1 @@
-vp staged
+node scripts/check-private-boundary.ts && vp staged
