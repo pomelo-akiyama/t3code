@@ -20,6 +20,15 @@ const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
+describe("ClientSettings fork defaults", () => {
+  it("starts with the larger interface and monospace font sizes", () => {
+    const settings = decodeClientSettings({});
+
+    expect(settings.fontSizeInterface).toBe(18);
+    expect(settings.fontSizeCode).toBe(15);
+  });
+});
+
 describe("ClaudeSettings auto-compaction", () => {
   it("uses Claude's default threshold when no override is configured", () => {
     expect(decodeClaudeSettings({}).autoCompactWindow).toBe("");

@@ -18,6 +18,7 @@
         const THEME_FOLLOW_SYSTEM_STORAGE_KEY = "t3code:theme-follow-system";
         const THEME_APPEARANCE_MODE_STORAGE_KEY = "t3code:theme-appearance-mode";
         const THEME_HALVES_STORAGE_KEY = "t3code:theme-halves:v1";
+        const DEFAULT_THEME_ID = "ember";
         const SPLASH_COLORS = {
           light: {
             background: "#ffffff",
@@ -217,7 +218,7 @@
         };
 
         try {
-          const storedTheme = window.localStorage.getItem("t3code:theme");
+          const rawStoredTheme = window.localStorage.getItem("t3code:theme");
           const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
           // Older builds stored the dark T3 Chat palette as its own theme id
           // and every maintainer theme under a t3- prefix; keep those
@@ -229,26 +230,50 @@
             "t3-ember": "ember",
             "t3-iris": "iris",
           };
-          const isLegacyT3ChatDark = storedTheme === "t3-chat-dark";
-          const themeId =
-            storedTheme === null ? "" : (LEGACY_THEME_IDS[storedTheme] ?? storedTheme);
-          const legacyMode = isLegacyT3ChatDark ? "dark" : null;
-          const builtInModes = BUILT_IN_THEME_MODES[themeId] ?? null;
-          const customTheme = builtInModes ? null : findCustomTheme(themeId);
-          const themeModes =
-            builtInModes ??
-            (customTheme
-              ? ["light", "dark"].filter(
-                  (mode) => mode === customTheme.appearance || customTheme.variants?.[mode],
-                )
-              : null);
-          // Mirrors the runtime's isKnownThemePreference.
-          const isKnownTheme =
-            storedTheme === "light" ||
-            storedTheme === "dark" ||
-            storedTheme === "system" ||
-            themeModes !== null;
-          const theme = isKnownTheme && storedTheme ? storedTheme : "system";
+          const resolveSelection = (storedTheme) => {
+            const isLegacyT3ChatDark = storedTheme === "t3-chat-dark";
+            const themeId =
+              storedTheme === null ? "" : (LEGACY_THEME_IDS[storedTheme] ?? storedTheme);
+            const legacyMode = isLegacyT3ChatDark ? "dark" : null;
+            const builtInModes = BUILT_IN_THEME_MODES[themeId] ?? null;
+            const customTheme = builtInModes ? null : findCustomTheme(themeId);
+            const themeModes =
+              builtInModes ??
+              (customTheme
+                ? ["light", "dark"].filter(
+                    (mode) => mode === customTheme.appearance || customTheme.variants?.[mode],
+                  )
+                : null);
+            // Mirrors the runtime's isKnownThemePreference.
+            const isKnownTheme =
+              storedTheme === "light" ||
+              storedTheme === "dark" ||
+              storedTheme === "system" ||
+              themeModes !== null;
+            return {
+              storedTheme,
+              themeId,
+              legacyMode,
+              builtInModes,
+              customTheme,
+              themeModes,
+              isKnownTheme,
+            };
+          };
+          const storedSelection = resolveSelection(rawStoredTheme);
+          const selection =
+            storedSelection.isKnownTheme && rawStoredTheme
+              ? storedSelection
+              : resolveSelection(DEFAULT_THEME_ID);
+          const {
+            storedTheme: theme,
+            themeId,
+            legacyMode,
+            builtInModes,
+            customTheme,
+            themeModes,
+            isKnownTheme,
+          } = selection;
           const isThemed = isKnownTheme && themeModes !== null;
           const baseAppearance = customTheme ? customTheme.appearance : "light";
           const systemMode = prefersDark ? "dark" : "light";
@@ -360,7 +385,7 @@
           }
           // A resolved half is a selection even when the base theme is gone
           // (deleting the base leaves the mix pointing at a real theme).
-          const hasSelection = halfThemeId !== null || (isKnownTheme && storedTheme !== null);
+          const hasSelection = halfThemeId !== null || isKnownTheme;
           if (hasSelection) {
             document.documentElement.dataset.themeSelected = "true";
           } else {
@@ -385,19 +410,19 @@
           }
           setThemeColor(chromeColor);
         } catch {
-          // Mirror the runtime's storage-failure fallback: follow the OS.
-          let prefersDark = true;
-          try {
-            prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-          } catch {
-            // Keep the dark default when even matchMedia is unavailable.
+          // Mirror the runtime's storage-failure fallback: use the fork's
+          // default Ember palette even when local storage is unavailable.
+          const fallback = BUILT_IN_THEME_PALETTES[DEFAULT_THEME_ID].light;
+          document.documentElement.dataset.themeId = DEFAULT_THEME_ID;
+          document.documentElement.dataset.themeSelected = "true";
+          document.documentElement.classList.toggle("dark", false);
+          document.documentElement.style.backgroundColor = fallback.chrome;
+          for (const [name, value] of Object.entries(fallback)) {
+            if (name !== "chrome") {
+              document.documentElement.style.setProperty(`--boot-${name}`, value);
+            }
           }
-          delete document.documentElement.dataset.themeId;
-          delete document.documentElement.dataset.themeSelected;
-          document.documentElement.classList.toggle("dark", prefersDark);
-          const fallbackColor = prefersDark ? DARK_BACKGROUND : LIGHT_BACKGROUND;
-          document.documentElement.style.backgroundColor = fallbackColor;
-          setThemeColor(fallbackColor);
+          setThemeColor(fallback.chrome);
         }
       })();
     </script>
@@ -453,13 +478,13 @@
         object-fit: contain;
       }
     </style>
-    <title>T3 Code (Alpha)</title>
+    <title>T3 Code Math (Alpha)</title>
   </head>
   <body>
     <div id="root">
       <div id="boot-shell">
-        <div id="boot-shell-card" aria-label="T3 Code splash screen">
-          <img id="boot-shell-logo" src="/apple-touch-icon.png" alt="T3 Code" />
+        <div id="boot-shell-card" aria-label="T3 Code Math splash screen">
+          <img id="boot-shell-logo" src="/t3-code-math-icon.png" alt="T3 Code Math" />
         </div>
       </div>
     </div>
