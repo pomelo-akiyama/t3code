@@ -82,16 +82,6 @@ describe("theme failure handling", () => {
     expect(readThemePreference()).toBe("t3-chat");
   });
 
-  it("defaults new clients to Ember", async () => {
-    vi.stubGlobal("window", {
-      localStorage: createStorage(),
-    });
-
-    const { readThemePreference } = await import("./useTheme");
-
-    expect(readThemePreference()).toBe("ember");
-  });
-
   it("falls back during initial theme application and logs only safe attributes", async () => {
     const cause = new Error("private browsing storage failure");
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});

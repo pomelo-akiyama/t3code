@@ -113,7 +113,7 @@ function runtimeResolvedAppearance(
   invalidateCustomThemes();
   try {
     const raw = storage[THEME_STORAGE_KEY] ?? null;
-    const theme = raw !== null && isKnownThemePreference(raw) ? raw : "ember";
+    const theme = raw !== null && isKnownThemePreference(raw) ? raw : "system";
     const followRaw = storage[THEME_FOLLOW_SYSTEM_STORAGE_KEY] ?? null;
     const appearanceRaw = storage[THEME_APPEARANCE_MODE_STORAGE_KEY] ?? null;
     const appearanceMode =
@@ -251,14 +251,6 @@ describe("index.html boot script", () => {
       prefersDark: false,
     },
   ];
-
-  it("selects the light Ember palette for a new client", () => {
-    const boot = runBootScript({ storage: {}, prefersDark: true });
-
-    expect(boot.themeId).toBe("ember");
-    expect(boot.themeSelected).toBe("true");
-    expect(boot.isDark).toBe(false);
-  });
 
   it.each(parityCases)("matches the runtime appearance: $name", ({ storage, prefersDark }) => {
     const boot = runBootScript({ storage, prefersDark });
@@ -499,31 +491,28 @@ describe("index.html boot script", () => {
       prefersDark: false,
     });
 
-    const ember = getThemeColorsForMode(EMBER_THEME, "light")!;
-    expect(boot.themeId).toBe("ember");
-    expect(boot.themeSelected).toBe("true");
-    expect(boot.backgroundColor).toBe(ember.chrome);
-    expect(boot.metaContent).toBe(ember.chrome);
+    expect(boot.themeId).toBeUndefined();
+    expect(boot.themeSelected).toBeUndefined();
+    expect(boot.backgroundColor).toBe("#ffffff");
+    expect(boot.metaContent).toBe("#ffffff");
   });
 
-  it("falls back from unknown preferences to the Ember runtime default", () => {
+  it("leaves unknown preferences unthemed so the runtime default applies", () => {
     const boot = runBootScript({
       storage: { [THEME_STORAGE_KEY]: "gone-theme" },
       prefersDark: true,
     });
-    expect(boot.themeId).toBe("ember");
-    expect(boot.themeSelected).toBe("true");
-    expect(boot.isDark).toBe(false);
+    expect(boot.themeId).toBeUndefined();
+    expect(boot.themeSelected).toBeUndefined();
+    expect(boot.isDark).toBe(true);
   });
 
-  it("uses Ember when storage is unavailable", () => {
+  it("follows the OS appearance when storage is unavailable", () => {
     const light = runBootScript({ storageThrows: true, prefersDark: false });
     expect(light.isDark).toBe(false);
-    expect(light.themeId).toBe("ember");
-    expect(light.themeSelected).toBe("true");
+    expect(light.themeId).toBeUndefined();
 
     const dark = runBootScript({ storageThrows: true, prefersDark: true });
-    expect(dark.isDark).toBe(false);
-    expect(dark.themeId).toBe("ember");
+    expect(dark.isDark).toBe(true);
   });
 });
