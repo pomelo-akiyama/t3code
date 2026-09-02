@@ -76,7 +76,7 @@ git push origin main
 
 ### 自动干跑检查
 
-`.github/workflows/upstream-merge-check.yml` 每天在临时检出中把最新的上游正式标签合并进 `main`，按下文冲突预案处理 `pnpm-lock.yaml`，然后运行上面同一组定向测试和类型检查。检查通过时不产生任何输出；合并冲突或测试失败时，工作流会创建或追加一条标题以 `Upstream merge check failed` 开头的 issue，列出冲突文件或失败步骤。真正的合并与推送仍由人手动完成，合并完成后关闭对应 issue。该工作流依赖仓库启用 GitHub Actions。
+`.github/workflows/upstream-merge-check.yml` 每四小时在临时检出中把最新的上游正式标签合并进 `main`，按下文冲突预案处理 `pnpm-lock.yaml`，然后运行上面同一组定向测试和类型检查。检查通过时不产生任何输出；合并冲突或测试失败时，工作流会创建或追加一条标题以 `Upstream merge check failed` 开头的 issue，列出冲突文件或失败步骤。真正的合并与推送仍由人手动完成，合并完成后关闭对应 issue。该工作流依赖仓库启用 GitHub Actions。
 
 ## 冲突预案
 

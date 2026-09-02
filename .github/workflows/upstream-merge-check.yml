@@ -1,6 +1,6 @@
 # Fork maintenance: dry-run merge of the latest upstream release into main.
 #
-# Runs daily. Finds the newest non-nightly upstream tag, merges it into a
+# Runs every four hours. Finds the newest non-nightly upstream tag, merges it into a
 # throwaway checkout, resolves pnpm-lock.yaml the way FORK.md prescribes
 # (take upstream's file and reinstall), then runs the fork's targeted tests
 # and package typechecks. Success is silent. Failure opens or updates a
@@ -10,7 +10,7 @@ name: Upstream merge check
 
 on:
   schedule:
-    - cron: "17 3 * * *"
+    - cron: "17 */4 * * *"
   workflow_dispatch:
 
 permissions:
