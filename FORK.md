@@ -51,9 +51,20 @@
 
 远端约定：`origin` 指向本 fork，`upstream` 指向 `pingdotgg/t3code`。`main` 直接继承上游历史，同步只用本地 `git merge`，不改写历史，不使用 GitHub 网页上的 Sync fork / Update branch 按钮——网页按钮会在远端另造一个合并提交，与本地合并结果分叉，之后还得多拉取合并一次。
 
+同步以上游的正式版本标签为单位（形如 `v0.0.38`，不取 `-nightly` 标签），而非任意一个上游提交。合并时直接按标签名合并，合并提交信息因此天然记录了对应的上游版本；发行说明同样写明所基于的上游标签及其提交 SHA。
+
+每个克隆首次同步前启用一次 `git rerere`，让 git 记住已经解决过的冲突，下次在同一位置再次冲突时自动复用：
+
 ```bash
-git fetch upstream
-git merge upstream/main
+git config rerere.enabled true
+git config rerere.autoupdate true
+```
+
+同步步骤：
+
+```bash
+git fetch upstream --tags
+git merge v0.0.38   # 换成最新的上游正式标签
 vp i
 vp test run apps/web/src/markdown-math.test.ts apps/web/src/components/ChatMarkdown.test.tsx apps/web/src/markdown-clipboard.test.ts
 vp test run apps/web/src/branding.test.ts apps/desktop/src/app/DesktopAppIdentity.test.ts scripts/build-desktop-artifact.test.ts
@@ -62,6 +73,10 @@ git push origin main
 ```
 
 验收标准：上述定向测试与包级类型检查全部通过，即认为公式渲染和应用身份定制在合并后完好；此外可随手发一条含 `\(x^2\)`、`$$...$$` 与 ```math fence 的消息目验一次。
+
+### 自动干跑检查
+
+`.github/workflows/upstream-merge-check.yml` 每天在临时检出中把最新的上游正式标签合并进 `main`，按下文冲突预案处理 `pnpm-lock.yaml`，然后运行上面同一组定向测试和类型检查。检查通过时不产生任何输出；合并冲突或测试失败时，工作流会创建或追加一条标题以 `Upstream merge check failed` 开头的 issue，列出冲突文件或失败步骤。真正的合并与推送仍由人手动完成，合并完成后关闭对应 issue。该工作流依赖仓库启用 GitHub Actions。
 
 ## 冲突预案
 

@@ -1,0 +1,160 @@
+# Fork maintenance: dry-run merge of the latest upstream release into main.
+#
+# Runs daily. Finds the newest non-nightly upstream tag, merges it into a
+# throwaway checkout, resolves pnpm-lock.yaml the way FORK.md prescribes
+# (take upstream's file and reinstall), then runs the fork's targeted tests
+# and package typechecks. Success is silent. Failure opens or updates a
+# tracking issue listing the conflicting files or failing step. The real
+# merge and push stay manual.
+name: Upstream merge check
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream-merge-check
+  cancel-in-progress: true
+
+env:
+  UPSTREAM_REPO: https://github.com/pingdotgg/t3code.git
+  ISSUE_TITLE_PREFIX: "Upstream merge check failed"
+
+jobs:
+  dry-merge:
+    name: Dry-run merge
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve latest upstream release
+        id: upstream
+        run: |
+          git remote add upstream "$UPSTREAM_REPO"
+          git fetch upstream --quiet 'refs/tags/v*:refs/tags/upstream/v*'
+          tag="$(git for-each-ref --format='%(refname:short)' 'refs/tags/upstream/v*' \
+            | grep -v -- '-nightly' \
+            | sed 's#^upstream/##' \
+            | sort -V \
+            | tail -n 1)"
+          if test -z "$tag"; then
+            echo "No upstream release tag found" >&2
+            exit 1
+          fi
+          sha="$(git rev-parse "refs/tags/upstream/$tag^{commit}")"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          if git merge-base --is-ancestor "$sha" HEAD; then
+            echo "main already contains upstream $tag ($sha)"
+            echo "pending=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "upstream $tag ($sha) is not yet merged into main"
+            echo "pending=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge upstream release
+        if: steps.upstream.outputs.pending == 'true'
+        id: merge
+        run: |
+          git config user.name "upstream-merge-check"
+          git config user.email "upstream-merge-check@users.noreply.github.com"
+          sha="${{ steps.upstream.outputs.sha }}"
+          if git merge --no-ff --no-edit "$sha"; then
+            echo "clean merge"
+            exit 0
+          fi
+          conflicts="$(git diff --name-only --diff-filter=U)"
+          # pnpm-lock.yaml is derived: take upstream's copy and let install
+          # add the fork's dependencies back (FORK.md, 冲突预案).
+          if test "$conflicts" = "pnpm-lock.yaml"; then
+            git checkout "$sha" -- pnpm-lock.yaml
+            git add pnpm-lock.yaml
+            git -c core.editor=true commit --no-edit
+            echo "merged; pnpm-lock.yaml taken from upstream"
+            exit 0
+          fi
+          {
+            echo "conflicts<<EOF_CONFLICTS"
+            echo "$conflicts"
+            echo "EOF_CONFLICTS"
+          } >> "$GITHUB_OUTPUT"
+          echo "Conflicting files:" >&2
+          echo "$conflicts" >&2
+          exit 1
+
+      - name: Setup Vite+
+        if: steps.upstream.outputs.pending == 'true'
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - name: Install
+        if: steps.upstream.outputs.pending == 'true'
+        run: vp install --no-frozen-lockfile
+
+      - name: Math rendering tests
+        if: steps.upstream.outputs.pending == 'true'
+        run: >
+          vp test run
+          apps/web/src/markdown-math.test.ts
+          apps/web/src/components/ChatMarkdown.test.tsx
+          apps/web/src/markdown-clipboard.test.ts
+
+      - name: Branding tests
+        if: steps.upstream.outputs.pending == 'true'
+        run: >
+          vp test run
+          apps/web/src/branding.test.ts
+          apps/desktop/src/app/DesktopAppIdentity.test.ts
+          scripts/build-desktop-artifact.test.ts
+
+      - name: Typecheck touched packages
+        if: steps.upstream.outputs.pending == 'true'
+        run: >
+          vp run
+          --filter @t3tools/web
+          --filter @t3tools/desktop
+          --filter @t3tools/mobile
+          --filter @t3tools/scripts
+          typecheck
+
+      - name: Report failure
+        if: failure() && steps.upstream.outputs.pending == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.upstream.outputs.tag }}
+          SHA: ${{ steps.upstream.outputs.sha }}
+          CONFLICTS: ${{ steps.merge.outputs.conflicts }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="$ISSUE_TITLE_PREFIX: $TAG"
+          if test -n "$CONFLICTS"; then
+            detail="$(printf 'Merge conflicts:\n\n```\n%s\n```\n' "$CONFLICTS")"
+          else
+            detail="The merge applied cleanly but a test or typecheck step failed. See the run log."
+          fi
+          body="$(printf 'Dry-run merge of upstream `%s` (`%s`) into `main` failed.\n\n%s\n\nRun: %s\n\nResolve per FORK.md, merge manually, and close this issue once `main` contains the release.\n' \
+            "$TAG" "$SHA" "$detail" "$RUN_URL")"
+          existing="$(gh issue list --state open --search "in:title \"$title\"" --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)"
+          if test -n "$existing"; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
