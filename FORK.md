@@ -2,7 +2,7 @@
 
 本仓库是 [pingdotgg/t3code](https://github.com/pingdotgg/t3code) 的 fork，唯一的自有功能是聊天消息中的数学公式渲染（KaTeX，详见 `docs/user/markdown-math.md`）。其余产品功能跟随上游：不在 fork 中做与公式渲染无关的功能开发，定期把上游 `main` 合并进来。
 
-公开发行版还包含一组应用身份定制，用于让 fork 与官方应用并存：应用名称和图标使用 T3 Code Math。主题、字号等外观偏好不在源码中改动默认值，由用户在设置中自行选择。私有部署资料、个人配置、凭据与签名材料统一存放在根目录的 `.fork-local/`，该目录由一条 `.gitignore` 规则形成单一隐私边界。应用身份定制不扩展产品功能，也需要在上游同步后继续保留。
+公开发行版还包含一组应用身份定制，用于让 fork 与官方应用并存：应用名称使用 T3 Code Math，图标使用“∫T3”字标。主题、字号等外观偏好不在源码中改动默认值，由用户在设置中自行选择。本机启动器、个人配置与签名材料统一存放在根目录的 `.fork-local/`，该目录由一条 `.gitignore` 规则形成单一隐私边界。本 fork 不保存或维护远程主机部署脚本与运维文档。应用身份定制不扩展产品功能，也需要在上游同步后继续保留。
 
 ## 上游贡献状态
 
@@ -31,19 +31,19 @@
 - `apps/web/src/markdown-clipboard.test.ts`：公式复制行为的测试。
 - `apps/web/package.json`：新增依赖 `katex` 与 `remark-math`。
 - `pnpm-lock.yaml`：由 package.json 派生，冲突时不手工合并（见下文）。
-- `.gitignore`：排除临时文件、本机运维资料、凭据与签名材料。
+- `.gitignore`：排除临时文件、本机启动资料、凭据与签名材料。
 
 ### 应用身份定制
 
 - Web、Desktop、Mobile 和桌面构建脚本中的应用名称统一为 T3 Code Math，相应测试断言使用同一名称。
 - `apps/web/public/` 与 `assets/prod/` 使用 fork 图标和品牌资源，侧边栏及启动页显示 fork 品牌。
-- `.gitignore` 排除私有部署资料、凭据和签名材料；这些文件不得进入公开提交。
+- `.gitignore` 排除本机启动资料、凭据和签名材料；这些文件不得进入公开提交。
 
 这些文件在上游极少变动，保留成本很低。主题默认值与字号默认值曾经也属于 fork 差异，但它们所在的 `index.html`、`useTheme.ts` 与 `packages/contracts/src/settings.ts` 在上游改动频繁，而对应价值只是省去用户在设置中的两次点击，因此已经退役。
 
 ### Fork-local 隐私边界
 
-根目录的 `.fork-local/` 是本机操作材料的唯一存放位置。部署文档与脚本、主机配置、凭据引用、签名材料和本地运维状态按职能放入该目录的子目录。平台托管的秘密继续保留在 GitHub Actions Secrets、macOS Keychain 或远端主机的安全存储中；`.fork-local/` 只保存调用配置或引用路径，不复制平台秘密。
+根目录的 `.fork-local/` 是本机操作材料的唯一存放位置。本机启动脚本、个人配置、凭据引用、签名材料和本地运行状态按职能放入该目录的子目录。平台托管的秘密继续保留在 GitHub Actions Secrets 或 macOS Keychain 中；`.fork-local/` 只保存调用配置或引用路径，不复制平台秘密。远程主机部署脚本与运维文档不属于本 fork 的维护范围。
 
 公开源码树不使用全局密钥文件通配规则。敏感文件如果被放到 `.fork-local/` 之外，应当出现在 `git status` 中，并由提交边界检查拒绝进入提交。该约定让错误位置立即可见，避免忽略规则掩盖散落的私有材料。
 
