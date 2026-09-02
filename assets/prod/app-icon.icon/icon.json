@@ -6,10 +6,10 @@
     {
       "layers": [
         {
-          "image-name": "t3-code-math.png",
-          "name": "T3 Code Math",
+          "image-name": "text.svg",
+          "name": "Integral T3",
           "position": {
-            "scale": 1,
+            "scale": 8.5,
             "translation-in-points": [0, 0]
           }
         }
