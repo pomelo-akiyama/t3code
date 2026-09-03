@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./cache-countdown": {
+      "types": "./src/cacheCountdown.ts",
+      "default": "./src/cacheCountdown.ts"
+    },
     "./connection": {
       "types": "./src/connection/index.ts",
       "default": "./src/connection/index.ts"

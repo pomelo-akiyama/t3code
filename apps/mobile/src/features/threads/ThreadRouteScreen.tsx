@@ -50,6 +50,7 @@ import {
 } from "../terminal/terminalLaunchContext";
 import { terminalDebugLog } from "../terminal/terminalDebugLog";
 import { ThreadDetailScreen } from "./ThreadDetailScreen";
+import { deriveCacheCountdown } from "@t3tools/client-runtime/cache-countdown";
 import {
   ThreadGitControls,
   useThreadGitCenterHeaderItems,
@@ -294,6 +295,16 @@ function ThreadRouteContent(
           }
         : null,
     [composer.interactionMode, composer.modelSelection, composer.runtimeMode, selectedThread],
+  );
+  const cacheCountdown = useMemo(
+    () =>
+      selectedThread && selectedThreadDetail
+        ? deriveCacheCountdown(
+            { ...selectedThreadDetail, ...selectedThread },
+            composer.modelSelection,
+          )
+        : null,
+    [selectedThread, selectedThreadDetail, composer.modelSelection],
   );
 
   /* ─── Native header theming ──────────────────────────────────────── */
@@ -767,6 +778,7 @@ function ThreadRouteContent(
 
       <View className="flex-1 bg-screen">
         <ThreadDetailScreen
+          cacheCountdown={cacheCountdown}
           selectedThread={selectedThreadWithDraftSettings ?? selectedThread}
           contentPresentation={contentPresentation}
           screenTone={connectionTone(routeConnectionState)}

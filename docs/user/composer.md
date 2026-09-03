@@ -52,6 +52,24 @@ On mobile, the model picker shows each OpenCode model's upstream provider, such 
 GitHub Copilot, or OpenCode Zen, beneath its name. Search by that provider name to narrow the list
 when starting a thread or changing an existing thread's model.
 
+## Prompt cache clock
+
+After a completed reply, a small clock in the composer shows the estimated prompt cache window
+on web, desktop, and mobile. The ring shrinks as time passes, turns amber during the last minute,
+and becomes a faint empty ring when the estimated window ends. Hover over the clock, select it
+with the keyboard, or tap it to see the remaining time and the estimate's basis.
+
+The clock uses a 30-minute estimate for Codex with GPT-5.5 or GPT-5.6, and a conservative
+five-minute estimate for earlier GPT-5 models and Claude. Actual retention depends on the
+provider, sign-in method, and cache settings; for example, Claude subscriptions can retain
+the main conversation's cache for an hour. The clock does not guarantee a cache hit or change
+the provider's cache settings. An ended window does not remove chat history.
+
+Timing follows the latest usage update within the completed turn, or reply completion when no
+usage update is available. Reloading, reopening a thread, or waking a device keeps the original
+deadline. A new completed reply updates the estimate. Selecting another model or provider hides
+the previous selection's clock. Cursor, Grok, OpenCode, and unrecognized models have no clock.
+
 ## Quote an assistant response
 
 On web and desktop, select text in an assistant response, then choose **Cite in composer** from the
