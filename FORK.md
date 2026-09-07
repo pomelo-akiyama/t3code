@@ -51,7 +51,7 @@
 
 远端约定：`origin` 指向本 fork，`upstream` 指向 `pingdotgg/t3code`。`main` 直接继承上游历史，同步只用本地 `git merge`，不改写历史，不使用 GitHub 网页上的 Sync fork / Update branch 按钮——网页按钮会在远端另造一个合并提交，与本地合并结果分叉，之后还得多拉取合并一次。
 
-同步以上游的正式版本标签为单位（形如 `v0.0.38`，不取 `-nightly` 标签），而非任意一个上游提交。合并时直接按标签名合并，合并提交信息因此天然记录了对应的上游版本；发行说明同样写明所基于的上游标签及其提交 SHA。
+同步以上游的正式版本标签为单位（形如 `v0.0.39`，不取 `-nightly` 标签），而非任意一个上游提交。合并时直接按标签名合并，合并提交信息因此天然记录了对应的上游版本；发行说明同样写明所基于的上游标签及其提交 SHA。
 
 每个克隆首次同步前启用一次 `git rerere`，让 git 记住已经解决过的冲突，下次在同一位置再次冲突时自动复用：
 
@@ -64,7 +64,7 @@ git config rerere.autoupdate true
 
 ```bash
 git fetch upstream --tags
-git merge v0.0.38   # 换成最新的上游正式标签
+git merge v0.0.39   # 换成最新的上游正式标签
 vp i
 vp test run apps/web/src/markdown-math.test.ts apps/web/src/components/ChatMarkdown.test.tsx apps/web/src/markdown-clipboard.test.ts
 vp test run apps/web/src/branding.test.ts apps/desktop/src/app/DesktopAppIdentity.test.ts scripts/build-desktop-artifact.test.ts
@@ -95,9 +95,9 @@ git push origin main
 - **`ChatMarkdown.tsx`**：公式实现集中在 `markdown-math-rendering.tsx`，共享文件只保留下列接入锚点。以上游版本为基底，按名称重放接入点，不要依赖行号：
   1. 顶部导入 `analyzeMathMarkdown`，以及 `MathMarkdown`、`renderDisplayMath`、`renderInlineMath` 和 `MathRemarkPluginSegments`。
   2. remark 插件数组拆成 `BEFORE_MATH` 与 `AFTER_MATH` 两段；基础渲染器直接拼接两段，公式渲染器在两段之间插入 `remark-math`。`remarkPreserveCodeMeta` 与 `remarkNormalizeLinksAndTagInlineCode` 必须位于 `AFTER_MATH`。
-  3. `ChatMarkdown` 函数体内保留 `mathAnalysis` useMemo 与 `openMathFenceTail` 取值。
+  3. `useChatMarkdownState` 内保留 `mathAnalysis` useMemo，将 `openMathFenceTail` 放入 `componentState` 及其依赖数组，并将 `mathAnalysis` 返回给 `ChatMarkdown`。
   4. `code` 覆盖器先调用 `renderInlineMath`，再查找内联代码文件芯片，避免把 `language-math` 当成普通 inline code。
   5. `pre` 覆盖器先调用 `renderDisplayMath`。该调用返回空值时继续使用代码块路径，因此流式尾部在闭合前维持源码显示。
-  6. `markdownComponents` useMemo 依赖数组保留 `openMathFenceTail`。组件返回处使用 `MathMarkdown` 包装基础渲染结果，并把同一份 `markdownComponents` 传给公式渲染器。
+  6. `CHAT_MARKDOWN_COMPONENTS` 保持为稳定的组件定义；`pre` 从 `ChatMarkdownRendererContext` 读取 `openMathFenceTail`。在同一个上下文提供者内使用 `MathMarkdown` 包装基础渲染结果，两个渲染器均使用 `CHAT_MARKDOWN_COMPONENTS`。
 
 极端情形：若上游重构了 ChatMarkdown 或整个 markdown 渲染管线，导致上述锚点无处安放，则以 `markdown-math.ts` 的导出接口（`analyzeMathMarkdown` 返回 `hasDelimiterMath` / `normalizedText` / `openMathFenceTail`）为不变量，在新管线中重新接线；扫描器与测试文件本身不依赖任何 UI 代码，可原样保留。若上游将来自带了公式渲染，优先评估直接采用上游实现并退役本 fork 的差异。
