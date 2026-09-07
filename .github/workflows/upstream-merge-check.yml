@@ -3,8 +3,8 @@
 # Runs every four hours. Finds the newest non-nightly upstream tag, merges it into a
 # throwaway checkout, resolves pnpm-lock.yaml the way FORK.md prescribes
 # (take upstream's file and reinstall), then runs the fork's targeted tests
-# and package typechecks. Success is silent. Failure opens or updates a
-# tracking issue listing the conflicting files or failing step. The real
+# and package typechecks. Success is silent. Failure writes a run summary
+# and, when Issues is enabled, opens or updates a tracking issue. The real
 # merge and push stay manual.
 name: Upstream merge check
 
@@ -151,10 +151,15 @@ jobs:
           fi
           body="$(printf 'Dry-run merge of upstream `%s` (`%s`) into `main` failed.\n\n%s\n\nRun: %s\n\nResolve per FORK.md, merge manually, and close this issue once `main` contains the release.\n' \
             "$TAG" "$SHA" "$detail" "$RUN_URL")"
-          existing="$(gh issue list --state open --search "in:title \"$title\"" --json number,title \
+          printf '%s\n' "$body" >> "$GITHUB_STEP_SUMMARY"
+          if test "$(gh api "repos/$GITHUB_REPOSITORY" --jq '.has_issues')" != "true"; then
+            echo "Issues is disabled; failure details are available in the run summary."
+            exit 0
+          fi
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$title\"" --json number,title \
             --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)"
           if test -n "$existing"; then
-            gh issue comment "$existing" --body "$body"
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
           else
-            gh issue create --title "$title" --body "$body"
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
           fi
