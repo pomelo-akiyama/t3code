@@ -213,6 +213,7 @@ import {
   submitComposerDraft,
 } from "./composerSubmission";
 import { ComposerPromptLengthValidation } from "./ComposerPromptLengthValidation";
+import { PierreEntryIcon } from "./PierreEntryIcon";
 import {
   createComposerScrollGestureState,
   recordComposerScrollGestureEvent,
@@ -788,7 +789,6 @@ import { toastManager } from "../ui/toast";
 import {
   BotIcon,
   CircleAlertIcon,
-  FileIcon,
   PaperclipIcon,
   PencilRulerIcon,
   PlayIcon,
@@ -3782,7 +3782,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             {image.previewUrl ? (
               <img src={image.previewUrl} alt="" className="size-full object-cover" />
             ) : (
-              <FileIcon className="m-auto size-3.5 text-secondary-label" />
+              <PierreEntryIcon
+                pathValue={image.name}
+                kind="file"
+                theme={resolvedTheme}
+                className="m-auto size-3.5"
+              />
             )}
           </button>
         ))}
@@ -4192,7 +4197,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (pendingUserInputs.length > 0) {
       toastManager.add({
         type: "error",
-        title: "Attach files after answering plan questions.",
+        title: "Attach files after answering pending questions.",
       });
       return;
     }
@@ -4347,7 +4352,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   const onComposerPaste = (event: React.ClipboardEvent<HTMLElement>) => {
     const files = Array.from(event.clipboardData.files);
-    // Claimable pastes go through even when plan questions are pending or the
+    // Claimable pastes go through even when agent questions are pending or the
     // composer is at its attachment limit: `addComposerAttachments` surfaces
     // those as a toast and a thread error. An early return here would swallow
     // the paste with no feedback.
@@ -5335,7 +5340,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           key={file.id}
                           className="flex min-w-0 items-center gap-2 py-1 text-sm text-foreground"
                         >
-                          <FileIcon className="size-4 shrink-0 text-secondary-label" />
+                          <PierreEntryIcon
+                            pathValue={file.name}
+                            kind="file"
+                            theme={resolvedTheme}
+                          />
                           <span className="min-w-0 flex-1 truncate">{file.name}</span>
                           <span className="shrink-0 text-xs text-secondary-label">
                             {needsReattach
