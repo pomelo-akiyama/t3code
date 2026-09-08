@@ -41,6 +41,10 @@
 
 这些文件在上游极少变动，保留成本很低。主题默认值与字号默认值曾经也属于 fork 差异，但它们所在的 `index.html`、`useTheme.ts` 与 `packages/contracts/src/settings.ts` 在上游改动频繁，而对应价值只是省去用户在设置中的两次点击，因此已经退役。
 
+### Cache countdown
+
+`packages/client-runtime` 里的估算倒计时，以及 web / mobile composer 上的展示。共享屏幕上的接入点在上游改动导入时可能冲突；按并集保留 `deriveCacheCountdown` 与上游新增的类型导入。
+
 ### Fork-local 隐私边界
 
 根目录的 `.fork-local/` 是本机操作材料的唯一存放位置。本机启动脚本、个人配置、凭据引用、签名材料和本地运行状态按职能放入该目录的子目录。平台托管的秘密继续保留在 GitHub Actions Secrets 或 macOS Keychain 中；`.fork-local/` 只保存调用配置或引用路径，不复制平台秘密。远程主机部署脚本与运维文档不属于本 fork 的维护范围。
@@ -51,7 +55,7 @@
 
 远端约定：`origin` 指向本 fork，`upstream` 指向 `pingdotgg/t3code`。`main` 直接继承上游历史，同步只用本地 `git merge`，不改写历史，不使用 GitHub 网页上的 Sync fork / Update branch 按钮——网页按钮会在远端另造一个合并提交，与本地合并结果分叉，之后还得多拉取合并一次。
 
-同步以上游的正式版本标签为单位（形如 `v0.0.39`，不取 `-nightly` 标签），而非任意一个上游提交。合并时直接按标签名合并，合并提交信息因此天然记录了对应的上游版本；发行说明同样写明所基于的上游标签及其提交 SHA。
+同步以上游的正式版本标签为单位（形如 `v0.0.40`，不取 `-nightly` 标签），而非任意一个上游提交。合并时直接按标签名合并，合并提交信息因此天然记录了对应的上游版本；发行说明同样写明所基于的上游标签及其提交 SHA。
 
 每个克隆首次同步前启用一次 `git rerere`，让 git 记住已经解决过的冲突，下次在同一位置再次冲突时自动复用：
 
@@ -64,7 +68,7 @@ git config rerere.autoupdate true
 
 ```bash
 git fetch upstream --tags
-git merge v0.0.39   # 换成最新的上游正式标签
+git merge v0.0.40   # 换成最新的上游正式标签
 vp i
 vp test run apps/web/src/markdown-math.test.ts apps/web/src/components/ChatMarkdown.test.tsx apps/web/src/markdown-clipboard.test.ts
 vp test run apps/web/src/branding.test.ts apps/desktop/src/app/DesktopAppIdentity.test.ts scripts/build-desktop-artifact.test.ts
@@ -76,19 +80,27 @@ git push origin main
 
 ### 自动干跑检查
 
-`.github/workflows/upstream-merge-check.yml` 每四小时在临时检出中把最新的上游正式标签合并进 `main`，按下文冲突预案处理 `pnpm-lock.yaml`，然后运行上面同一组定向测试和类型检查。检查通过时不产生任何输出；合并冲突或测试失败时，工作流会将冲突文件或失败步骤写入运行摘要；如果 fork 仓库启用了 Issues，还会在该 fork 中创建或追加一条标题以 `Upstream merge check failed` 开头的 issue。真正的合并与推送仍由人手动完成，合并完成后关闭对应 issue。该工作流依赖仓库启用 GitHub Actions。
+`.github/workflows/upstream-merge-check.yml` 每四小时在临时检出中把最新的上游正式标签合并进 `main`，按下文冲突预案自动处理 `pnpm-lock.yaml` 和品牌资源，然后运行上面同一组定向测试和类型检查。检查通过时不产生任何输出。首次出现无法自动处理的冲突或测试失败时，工作流会将冲突文件或失败步骤写入运行摘要，并把失败事件转发给 Cursor hygiene webhook；如果 fork 仓库启用了 Issues，还会创建或追加一条标题以 `Upstream merge check failed` 开头的 issue。同一标签、同一组剩余冲突再次出现时不再把检查标为失败。真正的合并与推送仍由人手动完成，合并完成后关闭对应 issue。该工作流依赖仓库启用 GitHub Actions。
+
+手工合并遇到冲突时，也可以先跑自动取舍，再处理剩下的共享文件：
+
+```bash
+node .github/scripts/resolve-fork-merge-conflicts.cjs --upstream-sha "$(git rev-parse v0.0.40)"
+```
 
 ## 冲突预案
 
 按文件类型处理：
 
-- **`pnpm-lock.yaml`**：一律取上游版本再重装，锁文件会根据合并后的 package.json 自动补回我们的依赖：
+- **`pnpm-lock.yaml`**：一律取上游版本再重装，锁文件会根据合并后的 package.json 自动补回我们的依赖。即使同时还有其他冲突，也先剥掉 lockfile，只把剩下的文件留给人：
 
   ```bash
   git checkout upstream/main -- pnpm-lock.yaml
   vp i
   git add pnpm-lock.yaml
   ```
+
+- **品牌资源**：图标与字标文件冲突时保留 fork 的文件。干跑检查对封闭名单自动执行，名单在 `.github/scripts/resolve-fork-merge-conflicts.cjs`。启动器、`app.config.ts`、`branding.ts` 等混有产品逻辑的源码不在名单内。`apps/mobile/assets/android-icon-foreground.svg` 上游已删除且配置只引用 PNG，冲突时接受删除。
 
 - **`apps/web/package.json`**：取双方依赖的并集（保留上游新增，同时保住 `katex` 与 `remark-math`）。
 - **测试文件**：我们的改动是自成一体的 `describe` 块与用例，与上游改动做并集即可。`ChatMarkdown.test.tsx` 顶部的具名导入也取并集：保留 `getMathRuntimePromise`，同时保留上游为文件芯片新增的 `canUseMarkdownFileShellActions` / `hasMarkdownFilePrimaryAction` / `shouldUseMarkdownFileBrowserPrimaryAction`。

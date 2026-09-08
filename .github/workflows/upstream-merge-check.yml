@@ -1,11 +1,11 @@
 # Fork maintenance: dry-run merge of the latest upstream release into main.
 #
 # Runs every four hours. Finds the newest non-nightly upstream tag, merges it into a
-# throwaway checkout, resolves pnpm-lock.yaml the way FORK.md prescribes
-# (take upstream's file and reinstall), then runs the fork's targeted tests
-# and package typechecks. Success is silent. Failure writes a run summary
-# and, when Issues is enabled, opens or updates a tracking issue. The real
-# merge and push stay manual.
+# throwaway checkout, applies FORK.md's automatic conflict rules (lockfile and
+# branding artwork), then runs the fork's targeted tests and package typechecks.
+# Success is silent. A new failure writes a run summary and, when Issues is
+# enabled, opens or updates a tracking issue. The same remaining conflicts for
+# the same tag do not fail again. The real merge and push stay manual.
 name: Upstream merge check
 
 on:
@@ -73,31 +73,71 @@ jobs:
           git config user.name "upstream-merge-check"
           git config user.email "upstream-merge-check@users.noreply.github.com"
           sha="${{ steps.upstream.outputs.sha }}"
+          echo "status=clean" >> "$GITHUB_OUTPUT"
           if git merge --no-ff --no-edit "$sha"; then
             echo "clean merge"
             exit 0
           fi
-          conflicts="$(git diff --name-only --diff-filter=U)"
-          # pnpm-lock.yaml is derived: take upstream's copy and let install
-          # add the fork's dependencies back (FORK.md, 冲突预案).
-          if test "$conflicts" = "pnpm-lock.yaml"; then
-            git checkout "$sha" -- pnpm-lock.yaml
-            git add pnpm-lock.yaml
+          remaining="$(node .github/scripts/resolve-fork-merge-conflicts.cjs --upstream-sha "$sha")"
+          if test -z "$remaining"; then
             git -c core.editor=true commit --no-edit
-            echo "merged; pnpm-lock.yaml taken from upstream"
+            echo "status=resolved" >> "$GITHUB_OUTPUT"
+            echo "merged; automatic conflict resolutions applied"
             exit 0
           fi
+          fingerprint="$(printf '%s\n' "$remaining" | sha256sum | awk '{print $1}')"
           {
+            echo "status=conflicts"
+            echo "fingerprint=$fingerprint"
             echo "conflicts<<EOF_CONFLICTS"
-            echo "$conflicts"
+            printf '%s\n' "$remaining"
             echo "EOF_CONFLICTS"
           } >> "$GITHUB_OUTPUT"
+          echo "Remaining conflicting files:" >&2
+          printf '%s\n' "$remaining" >&2
+
+      - name: Restore pending-report marker
+        if: steps.merge.outputs.status == 'conflicts'
+        id: pending-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .upstream-merge-pending
+          key: upstream-merge-pending-${{ steps.upstream.outputs.tag }}-${{ steps.upstream.outputs.sha }}-${{ steps.merge.outputs.fingerprint }}
+
+      - name: Note repeated conflict report
+        if: steps.merge.outputs.status == 'conflicts' && steps.pending-cache.outputs.cache-hit == 'true'
+        env:
+          TAG: ${{ steps.upstream.outputs.tag }}
+          SHA: ${{ steps.upstream.outputs.sha }}
+          CONFLICTS: ${{ steps.merge.outputs.conflicts }}
+        run: |
+          printf 'Already reported conflicts for `%s` (`%s`). Still waiting for a manual merge.\n\n```\n%s\n```\n' \
+            "$TAG" "$SHA" "$CONFLICTS" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record first conflict report
+        if: steps.merge.outputs.status == 'conflicts' && steps.pending-cache.outputs.cache-hit != 'true'
+        env:
+          CONFLICTS: ${{ steps.merge.outputs.conflicts }}
+        run: printf '%s\n' "$CONFLICTS" > .upstream-merge-pending
+
+      - name: Save pending-report marker
+        if: steps.merge.outputs.status == 'conflicts' && steps.pending-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .upstream-merge-pending
+          key: upstream-merge-pending-${{ steps.upstream.outputs.tag }}-${{ steps.upstream.outputs.sha }}-${{ steps.merge.outputs.fingerprint }}
+
+      - name: Fail on new merge conflicts
+        if: steps.merge.outputs.status == 'conflicts' && steps.pending-cache.outputs.cache-hit != 'true'
+        env:
+          CONFLICTS: ${{ steps.merge.outputs.conflicts }}
+        run: |
           echo "Conflicting files:" >&2
-          echo "$conflicts" >&2
+          printf '%s\n' "$CONFLICTS" >&2
           exit 1
 
       - name: Setup Vite+
-        if: steps.upstream.outputs.pending == 'true'
+        if: steps.upstream.outputs.pending == 'true' && (steps.merge.outputs.status == 'clean' || steps.merge.outputs.status == 'resolved')
         uses: voidzero-dev/setup-vp@v1
         with:
           node-version-file: package.json
@@ -105,11 +145,11 @@ jobs:
           run-install: false
 
       - name: Install
-        if: steps.upstream.outputs.pending == 'true'
+        if: steps.upstream.outputs.pending == 'true' && (steps.merge.outputs.status == 'clean' || steps.merge.outputs.status == 'resolved')
         run: vp install --no-frozen-lockfile
 
       - name: Math rendering tests
-        if: steps.upstream.outputs.pending == 'true'
+        if: steps.upstream.outputs.pending == 'true' && (steps.merge.outputs.status == 'clean' || steps.merge.outputs.status == 'resolved')
         run: >
           vp test run
           apps/web/src/markdown-math.test.ts
@@ -117,15 +157,19 @@ jobs:
           apps/web/src/markdown-clipboard.test.ts
 
       - name: Branding tests
-        if: steps.upstream.outputs.pending == 'true'
+        if: steps.upstream.outputs.pending == 'true' && (steps.merge.outputs.status == 'clean' || steps.merge.outputs.status == 'resolved')
         run: >
           vp test run
           apps/web/src/branding.test.ts
           apps/desktop/src/app/DesktopAppIdentity.test.ts
           scripts/build-desktop-artifact.test.ts
 
+      - name: Conflict resolver tests
+        if: steps.upstream.outputs.pending == 'true' && (steps.merge.outputs.status == 'clean' || steps.merge.outputs.status == 'resolved')
+        run: node --test .github/scripts/resolve-fork-merge-conflicts.test.cjs
+
       - name: Typecheck touched packages
-        if: steps.upstream.outputs.pending == 'true'
+        if: steps.upstream.outputs.pending == 'true' && (steps.merge.outputs.status == 'clean' || steps.merge.outputs.status == 'resolved')
         run: >
           vp run
           --filter @t3tools/web

@@ -9,6 +9,9 @@ on:
     types: [opened, closed, reopened]
   discussion:
     types: [created, closed, reopened]
+  workflow_run:
+    workflows: ["Upstream merge check"]
+    types: [completed]
 
 permissions:
   contents: read
@@ -16,6 +19,7 @@ permissions:
 jobs:
   forward:
     name: POST to Cursor
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'failure'
     runs-on: ubuntu-24.04
     steps:
       - name: POST to Cursor
