@@ -1,0 +1,51 @@
+name: 浏览器公式上游兼容检查
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-upstream-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: 试合并上游版本
+        id: merge
+        run: node apps/web/src/fork/math/check-upstream.mjs
+
+      - uses: voidzero-dev/setup-vp@v1
+        if: steps.merge.outputs.pending == 'true'
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - name: 安装合并后的依赖
+        if: steps.merge.outputs.pending == 'true'
+        run: vp install --no-frozen-lockfile
+
+      - name: 检查公式和聊天 Markdown
+        if: steps.merge.outputs.pending == 'true'
+        run: >
+          vp test run
+          apps/web/src/fork/math/scan.test.ts
+          apps/web/src/fork/math/ChatMarkdown.test.tsx
+          apps/web/src/components/ChatMarkdown.test.tsx
+          apps/web/src/markdown-clipboard.test.ts
+
+      - name: 检查 Web 类型
+        if: steps.merge.outputs.pending == 'true'
+        run: vp run --filter @t3tools/web typecheck
+
+      - name: 构建 Web
+        if: steps.merge.outputs.pending == 'true'
+        run: vp run --filter @t3tools/web build

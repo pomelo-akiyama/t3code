@@ -26,7 +26,6 @@ squashfs-root/
 .vercel
 .gstack/
 .plans/
-.tmp/
 dist-electron/
 .electron-runtime/
 .showcase/
@@ -39,4 +38,3 @@ node_modules/
 *.log
 .env*
 !.env.example
-/.fork-local/

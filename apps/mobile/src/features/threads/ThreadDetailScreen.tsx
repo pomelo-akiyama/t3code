@@ -1,5 +1,4 @@
 import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
-import type { CacheCountdownEstimate } from "@t3tools/client-runtime/cache-countdown";
 import {
   appendCodexArtifactTemplateUsePrompt,
   type CodexArtifactTemplate,
@@ -105,7 +104,6 @@ import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
 
 export interface ThreadDetailScreenProps {
-  readonly cacheCountdown?: CacheCountdownEstimate | null;
   readonly selectedThread: OrchestrationThreadShell;
   readonly contentPresentation: ThreadContentPresentation;
   readonly screenTone: StatusTone;
@@ -1006,7 +1004,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                 }
               >
                 <ThreadComposer
-                  cacheCountdown={props.cacheCountdown}
                   editorRef={composerEditorRef}
                   draftMessage={props.draftMessage}
                   draftAttachments={props.draftAttachments}

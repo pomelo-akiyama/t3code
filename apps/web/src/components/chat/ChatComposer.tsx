@@ -191,11 +191,6 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { ContextWindowMeter } from "./ContextWindowMeter";
-import { CacheCountdown } from "./CacheCountdown";
-import {
-  deriveCacheCountdown,
-  type CacheCountdownEstimate,
-} from "@t3tools/client-runtime/cache-countdown";
 import {
   providerSupportsManualCompaction,
   resolveContextWindowModelDisplayName,
@@ -1050,7 +1045,6 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
 
 const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
   compact: boolean;
-  cacheCountdown: CacheCountdownEstimate | null;
   activeContextWindow: ContextWindowSnapshot | null;
   activeThreadModelDisplayName: string | null;
   isPreparingWorktree: boolean;
@@ -1080,9 +1074,6 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
 }) {
   return (
     <>
-      {props.cacheCountdown ? (
-        <CacheCountdown key={props.cacheCountdown.expiresAt} estimate={props.cacheCountdown} />
-      ) : null}
       {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}
@@ -1797,11 +1788,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     () => resolveContextWindowModelDisplayName(activeThreadModelSelection, modelOptionsByInstance),
     [activeThreadModelSelection, modelOptionsByInstance],
   );
-  const cacheCountdown = useMemo(
-    () => (phase === "running" ? null : deriveCacheCountdown(activeThread, selectedModelSelection)),
-    [activeThread, phase, selectedModelSelection],
-  );
-  const cacheCountdownWidth = cacheCountdown ? 36 : 0;
 
   // ------------------------------------------------------------------
   // Composer-local state
@@ -2401,7 +2387,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (!composerForm) return;
     const measureComposerFormWidth = () => composerForm.clientWidth;
     const measureFooterCompactness = () => {
-      const composerFormWidth = measureComposerFormWidth() - cacheCountdownWidth;
+      const composerFormWidth = measureComposerFormWidth();
       const footerCompact = shouldUseCompactComposerFooter(composerFormWidth, {
         hasWideActions: composerFooterHasWideActions,
       });
@@ -2457,7 +2443,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     activeThreadId,
     composerFooterActionLayoutKey,
     composerFooterHasWideActions,
-    cacheCountdownWidth,
     isComposerApprovalState,
     isComposerCollapsedMobile,
     panelAnimationDurationMs,
@@ -5574,7 +5559,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     </>
                   ) : null}
                   <ComposerFooterPrimaryActions
-                    cacheCountdown={cacheCountdown}
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     activeContextWindow={
                       settings.contextWindowMeterEnabled ? activeContextWindow : null

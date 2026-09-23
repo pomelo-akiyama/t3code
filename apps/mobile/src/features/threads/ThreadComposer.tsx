@@ -1,6 +1,4 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { CacheCountdownEstimate } from "@t3tools/client-runtime/cache-countdown";
-import { CacheCountdown } from "./CacheCountdown";
 import type {
   EnvironmentId,
   MessageId,
@@ -109,7 +107,6 @@ export const COMPOSER_COLLAPSED_CHROME = 60;
 export const COMPOSER_EXPANDED_CHROME = 156;
 
 export interface ThreadComposerProps {
-  readonly cacheCountdown?: CacheCountdownEstimate | null;
   readonly draftMessage: string;
   readonly draftAttachments: ReadonlyArray<DraftComposerAttachment>;
   readonly placeholder: string;
@@ -689,12 +686,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
             ) : null}
             {!isExpanded ? (
               <View className="flex-row items-center">
-                {!showsCompactDictation && props.cacheCountdown ? (
-                  <CacheCountdown
-                    key={props.cacheCountdown.expiresAt}
-                    estimate={props.cacheCountdown}
-                  />
-                ) : null}
                 <ComposerDictationStartAction
                   state={voiceInput.state}
                   isAvailable={voiceInput.isAvailable}
@@ -784,12 +775,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   </View>
                 )}
                 <View className="shrink-0 flex-row items-center">
-                  {isExpanded && !isVoiceInputPresented && props.cacheCountdown ? (
-                    <CacheCountdown
-                      key={props.cacheCountdown.expiresAt}
-                      estimate={props.cacheCountdown}
-                    />
-                  ) : null}
                   <ComposerDictationPrimaryAction
                     state={voiceInput.state}
                     presentation={voicePresentation}

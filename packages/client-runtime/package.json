@@ -3,10 +3,6 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./cache-countdown": {
-      "types": "./src/cacheCountdown.ts",
-      "default": "./src/cacheCountdown.ts"
-    },
     "./load-balancing": {
       "types": "./src/load-balancing.ts",
       "default": "./src/load-balancing.ts"
