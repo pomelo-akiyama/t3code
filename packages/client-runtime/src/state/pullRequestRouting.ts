@@ -29,13 +29,17 @@ const reads = new Set<string>([
   WS_METHODS.pullRequestsSummary,
   WS_METHODS.pullRequestsStack,
   WS_METHODS.pullRequestsDetail,
+  WS_METHODS.pullRequestsPreview,
+  WS_METHODS.pullRequestsChecks,
   WS_METHODS.pullRequestsActivity,
   WS_METHODS.pullRequestsThreadComments,
   WS_METHODS.pullRequestsDiffFileContents,
+  WS_METHODS.pullRequestsFilesViewed,
   WS_METHODS.pullRequestsReviewerCandidates,
   WS_METHODS.pullRequestsLabelCandidates,
 ]);
 const writes = new Set<string>([
+  WS_METHODS.pullRequestsSetFilesViewed,
   WS_METHODS.pullRequestsRunAction,
   WS_METHODS.pullRequestsUpdate,
   WS_METHODS.pullRequestsComment,
@@ -49,6 +53,17 @@ const writes = new Set<string>([
 ]);
 const isRef = Schema.is(PullRequestRef);
 const isInvalidation = Schema.is(PullRequestInvalidateInput);
+const readTimeout = (environmentId: EnvironmentId) =>
+  Effect.timeoutOrElse({
+    duration: "30 seconds",
+    orElse: () =>
+      Effect.fail(
+        new EnvironmentRpcUnavailableError({
+          environmentId,
+          message: "The environment did not respond to the PR request.",
+        }),
+      ),
+  });
 interface RoutedRead {
   origin: EnvironmentId;
   reference: PullRequestRef;
@@ -171,7 +186,7 @@ export function createPullRequestRouter() {
         targets,
         ([target, reference]) =>
           invalidateTarget(registry, origin.target.environmentId, target, [
-            input.reference === undefined ? {} : { reference },
+            { ...input, ...(input.reference === undefined ? {} : { reference }) },
           ]),
         { concurrency: 4, discard: true },
       );
@@ -218,8 +233,13 @@ export function createPullRequestRouter() {
             targets,
             ([target, refs]) =>
               invalidateTarget(registry, origin.target.environmentId, target, [
-                ...refs.map((reference) => ({ reference })),
-                {},
+                ...refs.map((reference) => ({
+                  reference,
+                  ...(tag === WS_METHODS.pullRequestsSetFilesViewed
+                    ? { filesViewedOnly: true }
+                    : {}),
+                })),
+                ...(tag === WS_METHODS.pullRequestsSetFilesViewed ? [] : [{}]),
               ]),
             { concurrency: 4, discard: true },
           );
@@ -233,7 +253,18 @@ export function createPullRequestRouter() {
       const connected = yield* registry
         .run(id, EnvironmentSupervisor.pipe(Effect.flatMap((s) => SubscriptionRef.get(s.session))))
         .pipe(Effect.orElseSucceed(() => Option.none()));
-      if (Option.isSome(connected)) alternatives.push({ id, local: isLocal(entry) });
+      if (Option.isNone(connected)) continue;
+      if (tag === WS_METHODS.pullRequestsChecks) {
+        const supported = yield* connected.value.initialConfig.pipe(
+          Effect.map((config) => config.environment.capabilities.pullRequestChecks === true),
+          Effect.timeout("2 seconds"),
+          Effect.catchCause((cause) =>
+            Cause.hasInterrupts(cause) ? Effect.interrupt : Effect.succeed(false),
+          ),
+        );
+        if (!supported) continue;
+      }
+      alternatives.push({ id, local: isLocal(entry) });
     }
     if (alternatives.length === 0) return yield* finish(source);
 
@@ -318,16 +349,13 @@ export function createPullRequestRouter() {
           if (!(yield* routingAllowed(registry, origin.target.environmentId, id, writes.has(tag))))
             return yield* visit(index + 1);
         }
-        return yield* run(id).pipe(
-          Effect.catch((error) => {
-            if (
-              (reads.has(tag) || rejectedBeforeDispatch(error)) &&
-              index + 1 < candidates.length
-            ) {
-              return visit(index + 1);
-            }
-            return Effect.fail(error);
-          }),
+        const operation = run(id);
+        return yield* (reads.has(tag) ? operation.pipe(readTimeout(id)) : operation).pipe(
+          Effect.catchIf(
+            (error) =>
+              (reads.has(tag) || rejectedBeforeDispatch(error)) && index + 1 < candidates.length,
+            () => visit(index + 1),
+          ),
           Effect.map((result) =>
             typeof result === "object" && result !== null && "projectId" in result
               ? {
@@ -366,12 +394,15 @@ export function createPullRequestRouter() {
     }
     if (!allowed) return yield* request(tag, input);
     const strictInput = { ...input, allowStale: false };
-    const source = yield* Effect.cached(request(tag, strictInput));
-    // Cached source reads usually finish before another environment can verify its account.
-    // Hedge slow reads only; never race mutations or retry an ambiguous write.
-    return yield* Effect.race(
-      source,
-      routedRequest(tag, strictInput, source).pipe(Effect.delay("75 millis")),
+    const source = yield* Effect.cached(
+      request(tag, strictInput).pipe(readTimeout(origin.target.environmentId)),
+    );
+    const sourceEntry = entries.get(origin.target.environmentId);
+    const routed = routedRequest(tag, strictInput, source);
+    return yield* (
+      sourceEntry !== undefined && isLocal(sourceEntry)
+        ? source.pipe(Effect.catch(() => routed))
+        : routed
     ).pipe(
       Effect.catch((error) =>
         input.allowStale !== false &&
