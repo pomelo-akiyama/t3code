@@ -1,0 +1,84 @@
+name: 合并并验证一个上游通道
+
+on:
+  workflow_call:
+    inputs:
+      channel:
+        required: true
+        type: string
+    secrets:
+      UPSTREAM_SYNC_SSH_KEY:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          ssh-key: ${{ secrets.UPSTREAM_SYNC_SSH_KEY }}
+
+      - name: 检查自动合并规则
+        run: node --test apps/web/src/fork/math/merge-upstream.test.mjs
+
+      - name: 合并上游版本
+        id: merge
+        env:
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          git config user.name "upstream-sync[bot]"
+          git config user.email "upstream-sync@users.noreply.github.com"
+          node apps/web/src/fork/math/check-upstream.mjs "$CHANNEL"
+
+      - uses: voidzero-dev/setup-vp@v1
+        if: steps.merge.outputs.pending == 'true'
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - name: 安装依赖并重建锁文件
+        if: steps.merge.outputs.pending == 'true'
+        run: vp install --no-frozen-lockfile
+
+      - name: 检查公式和聊天 Markdown
+        if: steps.merge.outputs.pending == 'true'
+        run: >
+          vp test run
+          apps/web/src/fork/math/scan.test.ts
+          apps/web/src/fork/math/ChatMarkdown.test.tsx
+          apps/web/src/components/ChatMarkdown.test.tsx
+          apps/web/src/markdown-clipboard.test.ts
+          apps/web/src/markdown-incremental.test.ts
+
+      - name: 检查 Web 类型
+        if: steps.merge.outputs.pending == 'true'
+        run: vp run --filter @t3tools/web typecheck
+
+      - name: 构建 Web
+        if: steps.merge.outputs.pending == 'true'
+        run: vp run --filter @t3tools/web build
+
+      - name: 提交验证通过的合并
+        if: steps.merge.outputs.pending == 'true'
+        env:
+          TAG: ${{ steps.merge.outputs.tag }}
+          BASE: ${{ steps.merge.outputs.base }}
+        run: |
+          git add pnpm-lock.yaml
+          git diff --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+          git -c core.hooksPath=/dev/null commit -m "chore(fork): 跟进上游 $TAG 并保留公式支持"
+          git fetch origin main
+          if test "$(git rev-parse origin/main)" != "$BASE"; then
+            echo "验证期间 main 已更新，保留远端变更，下一次重新合并和验证" >&2
+            exit 1
+          fi
+          git push origin HEAD:refs/heads/main
+          echo "已合并并验证 $TAG" >> "$GITHUB_STEP_SUMMARY"

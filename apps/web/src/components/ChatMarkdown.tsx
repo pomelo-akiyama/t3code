@@ -119,9 +119,8 @@ import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
 import { getSyntaxHighlighterPromise } from "../lib/syntaxHighlighting";
-import { remarkForkMath } from "../fork/math/plugin";
 import { renderMathCode } from "../fork/math/render";
-import { analyzeMathMarkdown } from "../fork/math/scan";
+import { useMathMarkdown } from "../fork/math/useMathMarkdown";
 import { GitHubIcon } from "./Icons";
 import { RenderErrorBoundary } from "./RenderErrorBoundary";
 import { useTheme } from "../hooks/useTheme";
@@ -3123,15 +3122,15 @@ function ChatMarkdown({
     localMediaPreview,
     setLocalMediaPreview,
   } = useChatMarkdownState({ text, ...props });
-  const math = useMemo(() => analyzeMathMarkdown(text), [text]);
   const remarkPlugins = useMemo(
     () => [
       ...(lineBreaks ? CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS : CHAT_MARKDOWN_REMARK_PLUGINS),
       ...extraRemarkPlugins,
-      ...(math.formulas.length ? [() => remarkForkMath(math.formulas)] : []),
     ],
-    [extraRemarkPlugins, lineBreaks, math],
+    [extraRemarkPlugins, lineBreaks],
   );
+
+  const math = useMathMarkdown(text, remarkPlugins);
 
   // react-markdown converts unparsed HTML nodes to text when skipHtml is false.
   // Keep that behavior explicit because literal mode depends on escaping the
@@ -3146,7 +3145,7 @@ function ChatMarkdown({
     >
       <ChatMarkdownRendererContext value={componentState}>
         <ReactMarkdown
-          remarkPlugins={remarkPlugins}
+          remarkPlugins={math.remarkPlugins}
           rehypePlugins={parseRawHtml ? CHAT_MARKDOWN_REHYPE_PLUGINS : undefined}
           skipHtml={false}
           components={CHAT_MARKDOWN_COMPONENTS}

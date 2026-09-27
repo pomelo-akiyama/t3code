@@ -1,6 +1,7 @@
 import { EnvironmentId } from "@t3tools/contracts";
-import { type ComponentProps, type ReactNode } from "react";
+import { act, type ComponentProps, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { create, type ReactTestRenderer } from "react-test-renderer";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => null }));
@@ -62,6 +63,48 @@ describe("浏览器聊天公式", () => {
     );
     expect(html).not.toContain('class="katex"');
     expect(html).toContain("e^{i\\pi}=-1");
+  });
+
+  it("流式代码块前后的公式在追加、闭合和修改时保持正确", async () => {
+    await getMathRuntimePromise();
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    let renderer: ReactTestRenderer | undefined;
+    const prefix = "\\(x\\)\n\n```text\ncode stays code\n```\n\n";
+    try {
+      await act(async () => {
+        renderer = create(<ChatMarkdown cwd={undefined} text={prefix + "\\[y"} isStreaming />);
+      });
+      const mounted = renderer!;
+      const renderedFormulas = () =>
+        mounted.root
+          .findAll(
+            (node) =>
+              node.type === "span" &&
+              node.props.dangerouslySetInnerHTML?.__html?.includes('class="katex"'),
+          )
+          .map((node) => node.props.dangerouslySetInnerHTML.__html as string);
+      expect(renderedFormulas()).toHaveLength(1);
+      const code = mounted.root.findByProps({ "data-language": "text" });
+      await act(async () => {
+        mounted.update(<ChatMarkdown cwd={undefined} text={prefix + "\\[y^2\\]"} isStreaming />);
+      });
+      expect(renderedFormulas()).toHaveLength(2);
+      expect(renderedFormulas()[1]).toContain("y^2</annotation>");
+      expect(mounted.root.findByProps({ "data-language": "text" })).toBe(code);
+      await act(async () => {
+        mounted.update(
+          <ChatMarkdown
+            cwd={undefined}
+            text={prefix.replace("\\(x\\)", "\\(z\\)") + "\\[y^3\\]"}
+          />,
+        );
+      });
+      expect(renderedFormulas()[0]).toContain("z</annotation>");
+      expect(renderedFormulas()[1]).toContain("y^3</annotation>");
+    } finally {
+      await act(async () => renderer?.unmount());
+      vi.unstubAllGlobals();
+    }
   });
 
   it("只按指定行内和行间模式渲染三种分隔符", async () => {
