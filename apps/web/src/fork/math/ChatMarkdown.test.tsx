@@ -35,7 +35,8 @@ vi.mock("../../state/session", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../state/session")>()),
   usePreparedConnection: () => ({ _tag: "Loading" }),
 }));
-vi.mock("../../state/entities", () => ({
+vi.mock("../../state/entities", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../state/entities")>()),
   readThreadShell: () => null,
   useProjects: () => [],
   useServerConfigs: () => new Map(),
@@ -47,7 +48,8 @@ vi.mock("../../editorPreferences", () => ({
   useOpenInPreferredEditor: () => vi.fn(),
   usePreferredEditor: () => [null, vi.fn()],
 }));
-vi.mock("~/lib/openPullRequestLink", () => ({
+vi.mock("~/lib/openPullRequestLink", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("~/lib/openPullRequestLink")>()),
   findProjectForChangeRequest: () => undefined,
   findProjectOnChangeRequestHost: () => undefined,
   matchesLinkedPullRequestUrl: () => false,
