@@ -38,6 +38,7 @@ vi.mock("../../state/session", async (importOriginal) => ({
 vi.mock("../../state/entities", () => ({
   readThreadShell: () => null,
   useProjects: () => [],
+  useServerConfigs: () => new Map(),
 }));
 vi.mock("../../remoteOpen", () => ({
   useRemoteOpenResolution: () => ({ state: { mode: "local-exec" }, isResolved: true }),
@@ -48,6 +49,7 @@ vi.mock("../../editorPreferences", () => ({
 }));
 vi.mock("~/lib/openPullRequestLink", () => ({
   findProjectForChangeRequest: () => undefined,
+  findProjectOnChangeRequestHost: () => undefined,
   matchesLinkedPullRequestUrl: () => false,
   parseChangeRequestUrl: () => null,
   useOpenChangeRequestLink: () => vi.fn(),

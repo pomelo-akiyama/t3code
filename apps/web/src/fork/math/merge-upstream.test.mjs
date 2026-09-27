@@ -127,19 +127,25 @@ function fixture(t, { unknownConflict = false, packageConflict = false } = {}) {
   write(fork, "pnpm-lock.yaml", "fork lock\n");
   if (unknownConflict) write(fork, "unrelated.txt", "local\n");
   commit(fork, "fork");
-  const updated = plain
-    .replace(
-      "  const remarkPlugins = useMemo(",
-      "  const incrementalParsing = props.isStreaming === true;\n  const remarkPlugins = useMemo(",
-    )
-    .replace(
-      "      ...extraRemarkPlugins,",
-      "      ...extraRemarkPlugins,\n      ...(incrementalParsing ? [createIncrementalMarkdownPlugin()] : []),",
-    )
-    .replace(
-      "[extraRemarkPlugins, lineBreaks]",
-      "[extraRemarkPlugins, incrementalParsing, lineBreaks]",
-    );
+  const incremental = plain.includes("  const incrementalParsing =")
+    ? plain
+    : plain
+        .replace(
+          "  const remarkPlugins = useMemo(",
+          "  const incrementalParsing = props.isStreaming === true;\n  const remarkPlugins = useMemo(",
+        )
+        .replace(
+          "      ...extraRemarkPlugins,",
+          "      ...extraRemarkPlugins,\n      ...(incrementalParsing ? [createIncrementalMarkdownPlugin()] : []),",
+        )
+        .replace(
+          "[extraRemarkPlugins, lineBreaks]",
+          "[extraRemarkPlugins, incrementalParsing, lineBreaks]",
+        );
+  const updated = incremental.replace(
+    'import { GitHubIcon } from "./Icons";',
+    'import { upstreamFeature } from "./upstream-feature";\nimport { GitHubIcon } from "./Icons";',
+  );
   write(upstream, markdownPath, updated);
   write(upstream, "apps/web/package.json", '{"dependencies":{"react":"2","editor":"3"}}\n');
   write(upstream, "pnpm-lock.yaml", "upstream lock\n");
@@ -168,6 +174,8 @@ for (const channel of ["stable", "preview"]) {
     NodeAssert.equal(result.status, 0, result.stderr);
     const source = NodeFS.readFileSync(NodePath.join(fork, markdownPath), "utf8");
     NodeAssert.match(source, /useMathMarkdown\(text, remarkPlugins\)/);
+    NodeAssert.match(source, /import \{ upstreamFeature \}/);
+    NodeAssert.match(result.stdout, /已自动处理 apps\/web\/src\/components\/ChatMarkdown.tsx/);
     NodeAssert.match(source, /incrementalParsing \? \[createIncrementalMarkdownPlugin\(\)\]/);
     NodeAssert.match(source, /\[extraRemarkPlugins, incrementalParsing, lineBreaks\]/);
     NodeAssert.deepEqual(
