@@ -78,7 +78,10 @@ NodeTest.test("依赖合并保留本地 KaTeX、上游删除和升级，拒绝�
   );
 });
 
-function fixture(t, { unknownConflict = false, packageConflict = false } = {}) {
+function fixture(
+  t,
+  { unknownConflict = false, packageConflict = false, splitReleaseLines = false } = {},
+) {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-upstream-test-"));
   t.after(() => NodeFS.rmSync(root, { recursive: true, force: true }));
   const upstream = NodePath.join(root, "upstream");
@@ -114,6 +117,11 @@ function fixture(t, { unknownConflict = false, packageConflict = false } = {}) {
   write(upstream, "pnpm-lock.yaml", "original lock\n");
   write(upstream, "unrelated.txt", "original\n");
   commit(upstream, "base");
+  if (splitReleaseLines) {
+    git(upstream, "branch", "stable");
+    write(upstream, "unrelated.txt", "preview architecture\n");
+    commit(upstream, "preview architecture");
+  }
   git(root, "clone", "-q", upstream, fork);
   git(fork, "remote", "add", "upstream", upstream);
   git(fork, "config", "user.name", "test");
@@ -127,6 +135,7 @@ function fixture(t, { unknownConflict = false, packageConflict = false } = {}) {
   write(fork, "pnpm-lock.yaml", "fork lock\n");
   if (unknownConflict) write(fork, "unrelated.txt", "local\n");
   commit(fork, "fork");
+  if (splitReleaseLines) git(upstream, "checkout", "-q", "stable");
   const incremental = plain.includes("  const incrementalParsing =")
     ? plain
     : plain
@@ -149,9 +158,24 @@ function fixture(t, { unknownConflict = false, packageConflict = false } = {}) {
   write(upstream, markdownPath, updated);
   write(upstream, "apps/web/package.json", '{"dependencies":{"react":"2","editor":"3"}}\n');
   write(upstream, "pnpm-lock.yaml", "upstream lock\n");
-  if (unknownConflict) write(upstream, "unrelated.txt", "upstream\n");
+  if (unknownConflict || splitReleaseLines) write(upstream, "unrelated.txt", "upstream\n");
   commit(upstream, "stable");
   git(upstream, "tag", "v1.0.1");
+  if (splitReleaseLines) {
+    git(upstream, "checkout", "-q", "main");
+    const merge = NodeChildProcess.spawnSync("git", ["merge", "--no-commit", "--no-ff", "stable"], {
+      cwd: upstream,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        GIT_COMMITTER_NAME: "test",
+        GIT_COMMITTER_EMAIL: "test@example.com",
+      },
+    });
+    NodeAssert.equal(merge.status, 1, merge.stderr);
+    NodeAssert.equal(git(upstream, "diff", "--name-only", "--diff-filter=U"), "unrelated.txt");
+    write(upstream, "unrelated.txt", "preview architecture with stable fixes\n");
+  }
   write(upstream, "preview.txt", "preview\n");
   commit(upstream, "preview");
   git(upstream, "tag", "v1.1.0-preview.20260927.10");
@@ -166,6 +190,40 @@ function fixture(t, { unknownConflict = false, packageConflict = false } = {}) {
     });
   return { fork, git, commit, run };
 }
+
+NodeTest.test("先接入上游已整合 stable 的 preview，保留公式并跳过已包含的正式版", (t) => {
+  const { fork, git, commit, run } = fixture(t, { splitReleaseLines: true });
+  const before = git(fork, "rev-parse", "HEAD");
+  const stable = run("stable");
+  NodeAssert.equal(stable.status, 1);
+  NodeAssert.match(stable.stderr, /无法自动处理的上游冲突：\nunrelated.txt/);
+  NodeAssert.equal(git(fork, "rev-parse", "HEAD"), before);
+  git(fork, "merge", "--abort");
+
+  const preview = run("preview");
+  NodeAssert.equal(preview.status, 0, preview.stderr);
+  NodeAssert.equal(git(fork, "diff", "--name-only", "--diff-filter=U"), "");
+  NodeAssert.equal(
+    NodeFS.readFileSync(NodePath.join(fork, "unrelated.txt"), "utf8"),
+    "preview architecture with stable fixes\n",
+  );
+  NodeAssert.match(
+    NodeFS.readFileSync(NodePath.join(fork, markdownPath), "utf8"),
+    /useMathMarkdown\(text, remarkPlugins\)/,
+  );
+  NodeAssert.equal(
+    JSON.parse(NodeFS.readFileSync(NodePath.join(fork, "apps/web/package.json"), "utf8"))
+      .dependencies.katex,
+    "2",
+  );
+  commit(fork, "verified preview merge");
+  git(fork, "merge-base", "--is-ancestor", "upstream/v1.0.1", "HEAD");
+  const merged = git(fork, "rev-parse", "HEAD");
+  const again = run("stable");
+  NodeAssert.equal(again.status, 0, again.stderr);
+  NodeAssert.match(again.stdout, /v1.0.1 已合并/);
+  NodeAssert.equal(git(fork, "rev-parse", "HEAD"), merged);
+});
 
 for (const channel of ["stable", "preview"]) {
   NodeTest.test(`${channel} 真正合并 Git 分支并保留公式和上游流式解析`, (t) => {
