@@ -13,16 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  preview:
+  stable:
     if: github.repository == 'pomelo-akiyama/t3code'
     uses: ./.github/workflows/fork-math-merge.yml
-    with:
-      channel: preview
-    secrets: inherit
-
-  stable:
-    needs: preview
-    uses: ./.github/workflows/fork-math-merge.yml
-    with:
-      channel: stable
     secrets: inherit

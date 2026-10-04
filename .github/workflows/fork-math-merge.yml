@@ -1,11 +1,7 @@
-name: 合并并验证一个上游通道
+name: 合并并验证最新 stable
 
 on:
   workflow_call:
-    inputs:
-      channel:
-        required: true
-        type: string
     secrets:
       UPSTREAM_SYNC_SSH_KEY:
         required: true
@@ -25,16 +21,14 @@ jobs:
           ssh-key: ${{ secrets.UPSTREAM_SYNC_SSH_KEY }}
 
       - name: 检查自动合并规则
-        run: node --test apps/web/src/fork/math/merge-upstream.test.mjs
+        run: node --test .githooks/post-commit.test.mjs apps/web/src/fork/math/merge-upstream.test.mjs
 
       - name: 合并上游版本
         id: merge
-        env:
-          CHANNEL: ${{ inputs.channel }}
         run: |
           git config user.name "upstream-sync[bot]"
           git config user.email "upstream-sync@users.noreply.github.com"
-          node apps/web/src/fork/math/check-upstream.mjs "$CHANNEL"
+          node apps/web/src/fork/math/check-upstream.mjs stable
 
       - uses: voidzero-dev/setup-vp@v1
         if: steps.merge.outputs.pending == 'true'

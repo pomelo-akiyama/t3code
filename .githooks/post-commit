@@ -1,0 +1,8 @@
+#!/bin/sh
+
+branch=$(git symbolic-ref --quiet --short HEAD) || exit 0
+
+if ! GIT_TERMINAL_PROMPT=0 git -c push.followTags=false push origin "HEAD:refs/heads/$branch"; then
+  printf '%s\n' "本地提交已保存，但自动推送 origin/$branch 失败。请处理上方错误后重试推送。" >&2
+  exit 1
+fi

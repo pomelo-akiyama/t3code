@@ -5,7 +5,7 @@ import * as NodeChildProcess from "node:child_process";
 import {
   addMathIntegration,
   mergePackageJson,
-  selectUpstreamTag,
+  selectLatestStableTag,
   stripMathIntegration,
 } from "./merge-upstream.mjs";
 
@@ -53,8 +53,8 @@ function resolveMarkdown(path) {
 }
 
 try {
-  const channel = process.argv[2];
-  selectUpstreamTag([], channel);
+  const channel = process.argv[2] ?? "stable";
+  if (channel !== "stable") throw new Error("自动合并只支持 stable");
   if (requireGit("status", "--porcelain").trim()) throw new Error("请在干净的临时检出中合并上游");
   if (git("rev-parse", "--verify", "MERGE_HEAD").status === 0) throw new Error("已有未完成的合并");
   if (git("remote", "get-url", "upstream").status !== 0) {
@@ -64,13 +64,8 @@ try {
   const tags = requireGit("for-each-ref", "--format=%(refname:strip=3)", "refs/tags/upstream/v*")
     .trim()
     .split("\n");
-  const tag = selectUpstreamTag(tags, channel);
-  if (!tag) {
-    if (channel === "stable") throw new Error("未找到上游正式版本标签");
-    console.log("上游尚未发布 preview");
-    report({ pending: false });
-    process.exit(0);
-  }
+  const tag = selectLatestStableTag(tags);
+  if (!tag) throw new Error("未找到上游正式版本标签");
   const sha = requireGit("rev-parse", `refs/tags/upstream/${tag}^{commit}`).trim();
   const base = requireGit("rev-parse", "HEAD").trim();
   console.log(`检查 ${channel}：${tag} (${sha})，基线 ${base}`);

@@ -8,7 +8,7 @@ import * as NodeTest from "node:test";
 import {
   addMathIntegration,
   mergePackageJson,
-  selectUpstreamTag,
+  selectLatestStableTag,
   stripMathIntegration,
 } from "./merge-upstream.mjs";
 
@@ -20,7 +20,7 @@ const integrated = NodeFS.readFileSync(
 );
 const plain = stripMathIntegration(integrated);
 
-NodeTest.test("正式版和 preview 分别按数字版本排序，排除 nightly 和其他预发布", () => {
+NodeTest.test("只选择数字版本最高的 stable，排除所有预发布版本", () => {
   const tags = [
     "v0.0.9",
     "v0.0.10",
@@ -30,10 +30,9 @@ NodeTest.test("正式版和 preview 分别按数字版本排序，排除 nightly
     "v99.0.0-beta.1",
     "v99.0.0-preview.1-nightly.2",
   ];
-  NodeAssert.equal(selectUpstreamTag(tags, "stable"), "v0.0.10");
-  NodeAssert.equal(selectUpstreamTag(tags, "preview"), "v0.0.11-preview.20260925.10");
-  NodeAssert.equal(selectUpstreamTag(["v1.0.0"], "preview"), undefined);
-  NodeAssert.throws(() => selectUpstreamTag(tags, "nightly"), /未知版本通道/);
+  NodeAssert.equal(selectLatestStableTag(tags), "v0.0.10");
+  NodeAssert.equal(selectLatestStableTag(["v1.0.0-preview.1", "v99.0.0-nightly.1"]), undefined);
+  NodeAssert.equal(selectLatestStableTag([]), undefined);
 });
 
 NodeTest.test("公式接入可以无损移除和恢复，缺失或重复的接入点必须停止", () => {
@@ -78,10 +77,7 @@ NodeTest.test("依赖合并保留本地 KaTeX、上游删除和升级，拒绝�
   );
 });
 
-function fixture(
-  t,
-  { unknownConflict = false, packageConflict = false, splitReleaseLines = false } = {},
-) {
+function fixture(t, { unknownConflict = false, packageConflict = false, stableTags = true } = {}) {
   const root = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-upstream-test-"));
   t.after(() => NodeFS.rmSync(root, { recursive: true, force: true }));
   const upstream = NodePath.join(root, "upstream");
@@ -117,11 +113,6 @@ function fixture(
   write(upstream, "pnpm-lock.yaml", "original lock\n");
   write(upstream, "unrelated.txt", "original\n");
   commit(upstream, "base");
-  if (splitReleaseLines) {
-    git(upstream, "branch", "stable");
-    write(upstream, "unrelated.txt", "preview architecture\n");
-    commit(upstream, "preview architecture");
-  }
   git(root, "clone", "-q", upstream, fork);
   git(fork, "remote", "add", "upstream", upstream);
   git(fork, "config", "user.name", "test");
@@ -135,7 +126,6 @@ function fixture(
   write(fork, "pnpm-lock.yaml", "fork lock\n");
   if (unknownConflict) write(fork, "unrelated.txt", "local\n");
   commit(fork, "fork");
-  if (splitReleaseLines) git(upstream, "checkout", "-q", "stable");
   const incremental = plain.includes("  const incrementalParsing =")
     ? plain
     : plain
@@ -158,31 +148,19 @@ function fixture(
   write(upstream, markdownPath, updated);
   write(upstream, "apps/web/package.json", '{"dependencies":{"react":"2","editor":"3"}}\n');
   write(upstream, "pnpm-lock.yaml", "upstream lock\n");
-  if (unknownConflict || splitReleaseLines) write(upstream, "unrelated.txt", "upstream\n");
+  if (unknownConflict) write(upstream, "unrelated.txt", "upstream\n");
   commit(upstream, "stable");
-  git(upstream, "tag", "v1.0.1");
-  if (splitReleaseLines) {
-    git(upstream, "checkout", "-q", "main");
-    const merge = NodeChildProcess.spawnSync("git", ["merge", "--no-commit", "--no-ff", "stable"], {
-      cwd: upstream,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        GIT_COMMITTER_NAME: "test",
-        GIT_COMMITTER_EMAIL: "test@example.com",
-      },
-    });
-    NodeAssert.equal(merge.status, 1, merge.stderr);
-    NodeAssert.equal(git(upstream, "diff", "--name-only", "--diff-filter=U"), "unrelated.txt");
-    write(upstream, "unrelated.txt", "preview architecture with stable fixes\n");
-  }
+  if (stableTags) git(upstream, "tag", "v1.0.1");
+  write(upstream, "latest-stable.txt", "latest stable\n");
+  commit(upstream, "latest stable");
+  if (stableTags) git(upstream, "tag", "v1.0.2");
   write(upstream, "preview.txt", "preview\n");
   commit(upstream, "preview");
   git(upstream, "tag", "v1.1.0-preview.20260927.10");
   write(upstream, "nightly.txt", "nightly\n");
   commit(upstream, "nightly");
   git(upstream, "tag", "v99.0.0-nightly.20260927");
-  const run = (channel) =>
+  const run = (channel = "stable") =>
     NodeChildProcess.spawnSync(process.execPath, [script, channel], {
       cwd: fork,
       encoding: "utf8",
@@ -191,71 +169,55 @@ function fixture(
   return { fork, git, commit, run };
 }
 
-NodeTest.test("先接入上游已整合 stable 的 preview，保留公式并跳过已包含的正式版", (t) => {
-  const { fork, git, commit, run } = fixture(t, { splitReleaseLines: true });
+NodeTest.test("拒绝 preview 通道且不改变当前检出", (t) => {
+  const { fork, git, run } = fixture(t);
   const before = git(fork, "rev-parse", "HEAD");
-  const stable = run("stable");
-  NodeAssert.equal(stable.status, 1);
-  NodeAssert.match(stable.stderr, /无法自动处理的上游冲突：\nunrelated.txt/);
+  const result = run("preview");
+  NodeAssert.equal(result.status, 1);
+  NodeAssert.match(result.stderr, /自动合并只支持 stable/);
   NodeAssert.equal(git(fork, "rev-parse", "HEAD"), before);
-  git(fork, "merge", "--abort");
-
-  const preview = run("preview");
-  NodeAssert.equal(preview.status, 0, preview.stderr);
-  NodeAssert.equal(git(fork, "diff", "--name-only", "--diff-filter=U"), "");
-  NodeAssert.equal(
-    NodeFS.readFileSync(NodePath.join(fork, "unrelated.txt"), "utf8"),
-    "preview architecture with stable fixes\n",
-  );
-  NodeAssert.match(
-    NodeFS.readFileSync(NodePath.join(fork, markdownPath), "utf8"),
-    /useMathMarkdown\(text, remarkPlugins\)/,
-  );
-  NodeAssert.equal(
-    JSON.parse(NodeFS.readFileSync(NodePath.join(fork, "apps/web/package.json"), "utf8"))
-      .dependencies.katex,
-    "2",
-  );
-  commit(fork, "verified preview merge");
-  git(fork, "merge-base", "--is-ancestor", "upstream/v1.0.1", "HEAD");
-  const merged = git(fork, "rev-parse", "HEAD");
-  const again = run("stable");
-  NodeAssert.equal(again.status, 0, again.stderr);
-  NodeAssert.match(again.stdout, /v1.0.1 已合并/);
-  NodeAssert.equal(git(fork, "rev-parse", "HEAD"), merged);
+  NodeAssert.equal(git(fork, "status", "--porcelain"), "");
 });
 
-for (const channel of ["stable", "preview"]) {
-  NodeTest.test(`${channel} 真正合并 Git 分支并保留公式和上游流式解析`, (t) => {
-    const { fork, git, commit, run } = fixture(t);
-    const result = run(channel);
-    NodeAssert.equal(result.status, 0, result.stderr);
-    const source = NodeFS.readFileSync(NodePath.join(fork, markdownPath), "utf8");
-    NodeAssert.match(source, /useMathMarkdown\(text, remarkPlugins\)/);
-    NodeAssert.match(source, /import \{ upstreamFeature \}/);
-    NodeAssert.match(result.stdout, /已自动处理 apps\/web\/src\/components\/ChatMarkdown.tsx/);
-    NodeAssert.match(source, /incrementalParsing \? \[createIncrementalMarkdownPlugin\(\)\]/);
-    NodeAssert.match(source, /\[extraRemarkPlugins, incrementalParsing, lineBreaks\]/);
-    NodeAssert.deepEqual(
-      JSON.parse(NodeFS.readFileSync(NodePath.join(fork, "apps/web/package.json"), "utf8"))
-        .dependencies,
-      { react: "2", editor: "3", katex: "2" },
-    );
-    NodeAssert.equal(NodeFS.existsSync(NodePath.join(fork, "preview.txt")), channel === "preview");
-    NodeAssert.equal(NodeFS.existsSync(NodePath.join(fork, "nightly.txt")), false);
-    NodeAssert.equal(git(fork, "diff", "--name-only", "--diff-filter=U"), "");
-    commit(fork, "verified merge");
-    const again = run(channel);
-    NodeAssert.equal(again.status, 0, again.stderr);
-    NodeAssert.match(again.stdout, /已合并/);
-    if (channel === "preview") NodeAssert.match(run("stable").stdout, /已合并/);
-  });
-}
+NodeTest.test("没有正式版时停止，不退回 preview 或 nightly", (t) => {
+  const { fork, git, run } = fixture(t, { stableTags: false });
+  const before = git(fork, "rev-parse", "HEAD");
+  const result = run();
+  NodeAssert.equal(result.status, 1);
+  NodeAssert.match(result.stderr, /未找到上游正式版本标签/);
+  NodeAssert.equal(git(fork, "rev-parse", "HEAD"), before);
+  NodeAssert.equal(git(fork, "status", "--porcelain"), "");
+});
+
+NodeTest.test("只合并最新 stable 并保留公式和上游流式解析", (t) => {
+  const { fork, git, commit, run } = fixture(t);
+  const result = run();
+  NodeAssert.equal(result.status, 0, result.stderr);
+  const source = NodeFS.readFileSync(NodePath.join(fork, markdownPath), "utf8");
+  NodeAssert.match(source, /useMathMarkdown\(text, remarkPlugins\)/);
+  NodeAssert.match(source, /import \{ upstreamFeature \}/);
+  NodeAssert.match(result.stdout, /已自动处理 apps\/web\/src\/components\/ChatMarkdown.tsx/);
+  NodeAssert.match(source, /incrementalParsing \? \[createIncrementalMarkdownPlugin\(\)\]/);
+  NodeAssert.match(source, /\[extraRemarkPlugins, incrementalParsing, lineBreaks\]/);
+  NodeAssert.deepEqual(
+    JSON.parse(NodeFS.readFileSync(NodePath.join(fork, "apps/web/package.json"), "utf8"))
+      .dependencies,
+    { react: "2", editor: "3", katex: "2" },
+  );
+  NodeAssert.equal(NodeFS.existsSync(NodePath.join(fork, "latest-stable.txt")), true);
+  NodeAssert.equal(NodeFS.existsSync(NodePath.join(fork, "preview.txt")), false);
+  NodeAssert.equal(NodeFS.existsSync(NodePath.join(fork, "nightly.txt")), false);
+  NodeAssert.equal(git(fork, "diff", "--name-only", "--diff-filter=U"), "");
+  commit(fork, "verified merge");
+  const again = run();
+  NodeAssert.equal(again.status, 0, again.stderr);
+  NodeAssert.match(again.stdout, /v1.0.2 已合并/);
+});
 
 NodeTest.test("不自动覆盖未知冲突", (t) => {
   const { fork, git, run } = fixture(t, { unknownConflict: true });
   const before = git(fork, "rev-parse", "HEAD");
-  const result = run("preview");
+  const result = run();
   NodeAssert.equal(result.status, 1);
   NodeAssert.match(result.stderr, /无法自动处理的上游冲突：\nunrelated.txt/);
   NodeAssert.equal(git(fork, "rev-parse", "HEAD"), before);

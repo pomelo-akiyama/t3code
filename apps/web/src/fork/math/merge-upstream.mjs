@@ -80,12 +80,9 @@ export function mergePackageJson(base, ours, theirs, path = "package.json") {
   return merged;
 }
 
-export function selectUpstreamTag(tags, channel) {
-  if (channel !== "stable" && channel !== "preview") throw new Error(`未知版本通道：${channel}`);
-  const pattern =
-    channel === "stable" ? /^v\d+\.\d+\.\d+$/ : /^v\d+\.\d+\.\d+-preview\.\d+(?:\.\d+)*$/;
+export function selectLatestStableTag(tags) {
   return tags
-    .filter((tag) => pattern.test(tag))
+    .filter((tag) => /^v\d+\.\d+\.\d+$/.test(tag))
     .sort((a, b) => {
       const left = a.match(/\d+/g).map(BigInt);
       const right = b.match(/\d+/g).map(BigInt);
