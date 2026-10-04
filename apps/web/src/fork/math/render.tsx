@@ -12,9 +12,10 @@ function MathFormula({ tex, display }: { tex: string; display: boolean }) {
     <span
       className={
         display
-          ? "chat-markdown-math-block my-[0.65rem] block overflow-x-auto overflow-y-hidden [&_.katex-display]:my-0"
-          : "chat-markdown-math-inline"
+          ? "my-[0.65rem] block overflow-x-auto overflow-y-hidden [&_.katex-display]:my-0"
+          : undefined
       }
+      data-markdown-math={display ? "block" : "inline"}
       data-markdown-copy={display ? `$$\n${tex}\n$$\n\n` : `\\(${tex}\\)`}
       dangerouslySetInnerHTML={{ __html: html }}
     />

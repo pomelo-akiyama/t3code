@@ -119,8 +119,8 @@ describe("浏览器聊天公式", () => {
         text={String.raw`Inline \(a_b\), displays $$x^2$$ and \[\frac{1}{2}\].`}
       />,
     );
-    expect(html.match(/chat-markdown-math-inline/g)).toHaveLength(1);
-    expect(html.match(/chat-markdown-math-block/g)).toHaveLength(2);
+    expect(html.match(/data-markdown-math="inline"/g)).toHaveLength(1);
+    expect(html.match(/data-markdown-math="block"/g)).toHaveLength(2);
     expect(html.match(/class="katex-display"/g)).toHaveLength(2);
     expect(html).toContain('data-markdown-copy="\\(a_b\\)"');
   });
@@ -130,7 +130,7 @@ describe("浏览器聊天公式", () => {
     const closed = renderToStaticMarkup(
       <ChatMarkdown cwd={undefined} text={"Before\n\n\\[\n\\frac{1}{2}\n\\]\n\nAfter"} />,
     );
-    expect(closed).toContain("chat-markdown-math-block");
+    expect(closed).toContain('data-markdown-math="block"');
     expect(closed).toContain("After");
     const open = renderToStaticMarkup(
       <ChatMarkdown cwd={undefined} text={"Before \\[\\frac{1}{2}"} isStreaming />,
@@ -154,7 +154,7 @@ describe("浏览器聊天公式", () => {
       <ChatMarkdown cwd={undefined} text={"> \\[\n> a*b_c\n> \\]"} />,
     );
     expect(html).toContain("<blockquote>");
-    expect(html).toContain("chat-markdown-math-block");
+    expect(html).toContain('data-markdown-math="block"');
     expect(html).toContain("a*b_c");
   });
 
@@ -177,7 +177,7 @@ describe("浏览器聊天公式", () => {
       />,
     );
     expect(html).not.toContain("<script");
-    expect(html).toContain("chat-markdown-math-inline");
+    expect(html).toContain('data-markdown-math="inline"');
   });
 
   it("原始 HTML 块不泄漏内部占位符", () => {
@@ -209,7 +209,7 @@ describe("浏览器聊天公式", () => {
       />,
     );
     expect(html).toContain("chat-markdown-file-link");
-    expect(html).toContain("chat-markdown-math-block");
+    expect(html).toContain('data-markdown-math="block"');
     expect(html).toContain("chat-markdown-artifact-template");
   });
 

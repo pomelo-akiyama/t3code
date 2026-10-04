@@ -2,39 +2,56 @@ import {
   EnvironmentId,
   EventId,
   MessageId,
-  type OrchestrationV2DomainEvent,
-  type OrchestrationV2ThreadProjection,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  type OrchestrationEvent,
+  type OrchestrationThread,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
-import { bench, describe } from "vite-plus/test";
+import { describe, test } from "vite-plus/test";
 
 import { issueRemoteWebSocketTicket } from "./authorization/remote.ts";
 import { PrimaryConnectionTarget } from "./connection/model.ts";
 import { fetchRemoteEnvironmentDescriptor } from "./environment/descriptor.ts";
 import type { RemoteEnvironmentRequestError } from "./rpc/http.ts";
 import { fetchEnvironmentThreadSnapshot } from "./state/threadSnapshotHttp.ts";
-import { applyOrchestrationV2ProjectionEvent } from "./state/orchestrationV2Projection.ts";
-import { v2Projection, v2Now } from "./state/orchestrationV2TestFixtures.ts";
+import { applyThreadDetailEvent } from "./state/threadReducer.ts";
 
 const timestamp = "2026-09-01T00:00:00.000Z";
-const thread: OrchestrationV2ThreadProjection = {
-  ...v2Projection,
+const runOptions = { warmupTime: 1_000, time: 1_500 };
+const thread: OrchestrationThread = {
+  id: ThreadId.make("thread-1"),
+  projectId: ProjectId.make("project-1"),
+  title: "Remote thread",
+  modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+  runtimeMode: "full-access",
+  interactionMode: "default",
+  branch: null,
+  worktreePath: null,
+  latestTurn: null,
+  createdAt: timestamp,
+  updatedAt: timestamp,
+  archivedAt: null,
+  settledOverride: null,
+  settledAt: null,
+  deletedAt: null,
+  pullRequests: [],
   messages: Array.from({ length: 100 }, (_, index) => ({
     id: MessageId.make(`message-${index}`),
-    threadId: v2Projection.thread.id,
-    runId: null,
-    nodeId: null,
     role: "assistant",
     text: "Message text. ".repeat(40),
-    attachments: [],
+    turnId: null,
     streaming: false,
-    createdBy: "agent",
-    creationSource: "provider",
-    createdAt: v2Now,
-    updatedAt: v2Now,
+    createdAt: timestamp,
+    updatedAt: timestamp,
   })),
+  proposedPlans: [],
+  activities: [],
+  checkpoints: [],
+  session: null,
 };
 const target = new PrimaryConnectionTarget({
   environmentId: EnvironmentId.make("remote-1"),
@@ -51,7 +68,7 @@ const responses = {
     capabilities: { repositoryIdentity: true },
   },
   "/api/auth/websocket-ticket": { ticket: "test-ticket", expiresAt: timestamp },
-  "/api/orchestration/threads/thread-v2": { snapshotSequence: 1, projection: thread },
+  "/api/orchestration/threads/thread-1": { snapshotSequence: 1, thread },
 };
 const httpClient = HttpClient.make((request) =>
   Effect.sync(() => {
@@ -79,31 +96,44 @@ const requests: Record<
       httpAuthorization: null,
       target,
     },
-    threadId: thread.thread.id,
+    threadId: thread.id,
     signer: Option.none(),
   }),
 };
 
 describe("remote HTTP processing with an in-memory transport", () => {
   for (const [name, request] of Object.entries(requests)) {
-    bench(
-      name,
-      async () => {
+    test(name, async ({ bench }) => {
+      await bench(name, async () => {
         await Effect.runPromise(
           request.pipe(Effect.provideService(HttpClient.HttpClient, httpClient)),
         );
-      },
-      { warmupTime: 1_000, time: 1_500 },
-    );
+      }).run(runOptions);
+    });
   }
 });
 
-const delta: Extract<OrchestrationV2DomainEvent, { type: "message.updated" }> = {
-  id: EventId.make("delta"),
-  type: "message.updated",
-  threadId: thread.thread.id,
-  occurredAt: v2Now,
-  payload: { ...thread.messages[99]!, text: " next", streaming: true },
+const delta: OrchestrationEvent = {
+  eventId: EventId.make("delta"),
+  sequence: 2,
+  aggregateKind: "thread",
+  aggregateId: thread.id,
+  occurredAt: timestamp,
+  commandId: null,
+  causationEventId: null,
+  correlationId: null,
+  metadata: {},
+  type: "thread.message-sent",
+  payload: {
+    threadId: thread.id,
+    messageId: MessageId.make("message-99"),
+    role: "assistant",
+    text: " next",
+    turnId: null,
+    streaming: true,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  },
 };
 
 describe("remote message replay", () => {
@@ -117,21 +147,17 @@ describe("remote message replay", () => {
     };
     const event = {
       ...delta,
-      payload: { ...delta.payload, id: loaded.messages.at(-1)!.id },
+      payload: { ...delta.payload, messageId: loaded.messages.at(-1)!.id },
     };
-    bench(
-      `apply 200 message updates to ${count} loaded messages`,
-      () => {
-        let current: OrchestrationV2ThreadProjection = loaded;
+    const name = `apply 200 text deltas to ${count} loaded messages`;
+    test(name, async ({ bench }) => {
+      await bench(name, () => {
+        let current: OrchestrationThread = loaded;
         for (let index = 0; index < 200; index += 1) {
-          current =
-            applyOrchestrationV2ProjectionEvent(current, {
-              ...event,
-              payload: { ...event.payload, text: ` next ${index}` },
-            }) ?? current;
+          const result = applyThreadDetailEvent(current, event);
+          if (result.kind === "updated") current = result.thread;
         }
-      },
-      { warmupTime: 1_000, time: 1_500 },
-    );
+      }).run(runOptions);
+    });
   }
 });

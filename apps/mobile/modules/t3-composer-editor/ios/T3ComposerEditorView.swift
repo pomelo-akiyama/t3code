@@ -94,42 +94,33 @@ private final class ComposerTextView: UITextView {
   var onPasteText: ((String, NSRange) -> Void)?
   var clipboardFragment = ""
   var onAttributedMutation: (() -> Void)?
-  var onSubmit: ((Bool) -> Void)?
+  var onSubmit: (() -> Void)?
   var isReadOnly = false
   var textPasteThresholdBytes = 0
   var maxInputChars = Int.max
   var enterBehavior: ComposerEnterBehavior = .send
-  /// Shortcut HUD titles. JS supplies what the two sends actually do right now
-  /// ("Queue Message" / "Steer Message"), so the iPad Command-hold list names
-  /// the outcome rather than a generic "Send".
-  var submitTitle = "Send Message"
-  var alternateSubmitTitle = "Send Message"
   private var bypassTextPasteInterception = false
 
   override var keyCommands: [UIKeyCommand]? {
     var commands = super.keyCommands ?? []
     guard !isReadOnly, markedTextRange == nil else { return commands }
-    // The plainer chord always performs the configured follow-up behavior and
-    // the more-modified one performs its opposite, so Command is the "other
-    // way" modifier whichever Return behavior is configured.
+    let submit = UIKeyCommand(
+      input: "\r",
+      modifierFlags: .command,
+      action: #selector(submitMessage(_:))
+    )
+    submit.discoverabilityTitle = "Send Message"
+    submit.wantsPriorityOverSystemBehavior = true
+    commands.append(submit)
     if enterBehavior == .send {
       let submitOnReturn = UIKeyCommand(
         input: "\r",
         modifierFlags: [],
         action: #selector(submitMessage(_:))
       )
-      submitOnReturn.discoverabilityTitle = submitTitle
+      submitOnReturn.discoverabilityTitle = "Send Message"
       submitOnReturn.wantsPriorityOverSystemBehavior = true
       commands.append(submitOnReturn)
-
-      let submitAlternate = UIKeyCommand(
-        input: "\r",
-        modifierFlags: .command,
-        action: #selector(submitMessageAlternate(_:))
-      )
-      submitAlternate.discoverabilityTitle = alternateSubmitTitle
-      submitAlternate.wantsPriorityOverSystemBehavior = true
-      commands.append(submitAlternate)
 
       let newline = UIKeyCommand(
         input: "\r",
@@ -139,24 +130,6 @@ private final class ComposerTextView: UITextView {
       newline.discoverabilityTitle = "New Line"
       newline.wantsPriorityOverSystemBehavior = true
       commands.append(newline)
-    } else {
-      let submit = UIKeyCommand(
-        input: "\r",
-        modifierFlags: .command,
-        action: #selector(submitMessage(_:))
-      )
-      submit.discoverabilityTitle = submitTitle
-      submit.wantsPriorityOverSystemBehavior = true
-      commands.append(submit)
-
-      let submitAlternate = UIKeyCommand(
-        input: "\r",
-        modifierFlags: [.command, .shift],
-        action: #selector(submitMessageAlternate(_:))
-      )
-      submitAlternate.discoverabilityTitle = alternateSubmitTitle
-      submitAlternate.wantsPriorityOverSystemBehavior = true
-      commands.append(submitAlternate)
     }
     if textPasteThresholdBytes > 0 {
       let pasteAsText = UIKeyCommand(
@@ -173,12 +146,7 @@ private final class ComposerTextView: UITextView {
 
   @objc private func submitMessage(_ sender: UIKeyCommand) {
     guard !isReadOnly, markedTextRange == nil else { return }
-    onSubmit?(false)
-  }
-
-  @objc private func submitMessageAlternate(_ sender: UIKeyCommand) {
-    guard !isReadOnly, markedTextRange == nil else { return }
-    onSubmit?(true)
+    onSubmit?()
   }
 
   @objc private func insertNewline(_ sender: UIKeyCommand) {
@@ -468,6 +436,7 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
   private var iconImages: [String: UIImage] = [:]
   private var pendingIconUris = Set<String>()
   private var tokensNeedRebuild = false
+  private var chipsNeedMeasuredWidth = false
 
   let onComposerChange = EventDispatcher()
   let onComposerSelectionChange = EventDispatcher()
@@ -520,8 +489,8 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
     textView.onAttributedMutation = { [weak self] in
       self?.emitTextChange()
     }
-    textView.onSubmit = { [weak self] alternate in
-      self?.onComposerSubmit(["alternate": alternate])
+    textView.onSubmit = { [weak self] in
+      self?.onComposerSubmit([:])
     }
     let contextTap = UITapGestureRecognizer(target: self, action: #selector(openContext(_:)))
     contextTap.cancelsTouchesInView = false
@@ -603,6 +572,10 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
   public override func layoutSubviews() {
     super.layoutSubviews()
     textView.frame = bounds
+    if chipsNeedMeasuredWidth, bounds.width > 0 {
+      chipsNeedMeasuredWidth = false
+      applyControlledDocument(force: true)
+    }
     let placeholderX = textView.textContainerInset.left + textView.textContainer.lineFragmentPadding
     let placeholderY = textView.textContainerInset.top
     let placeholderWidth = max(
@@ -726,14 +699,6 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
 
   func setEnterBehavior(_ behavior: String) {
     textView.enterBehavior = ComposerEnterBehavior(rawValue: behavior) ?? .send
-  }
-
-  func setSubmitTitle(_ title: String) {
-    textView.submitTitle = title
-  }
-
-  func setAlternateSubmitTitle(_ title: String) {
-    textView.alternateSubmitTitle = title
   }
 
   func setTextPasteThresholdBytes(_ threshold: Int) {
@@ -1010,7 +975,10 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
     // `maximumWidth` does, so the chip always fits the line it sits on.
     let availableWidth = textView.textContainer.size.width > 0
       ? textView.textContainer.size.width - textView.textContainer.lineFragmentPadding * 2
-      : UIScreen.main.bounds.width
+      : (textView.window?.bounds.width ?? bounds.width)
+    if availableWidth <= 0 {
+      chipsNeedMeasuredWidth = true
+    }
     let maximumLabelWidth = max(chipFontSize * 3, availableWidth - padding * 2 - iconWidth - iconGap)
     paragraph.lineBreakMode = .byTruncatingMiddle
     attributedLabel.addAttribute(
