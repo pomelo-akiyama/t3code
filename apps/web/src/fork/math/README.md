@@ -2,12 +2,21 @@
 
 浏览器和桌面端聊天支持三种公式分隔符。`\(...\)` 渲染为行内公式，`\[...\]` 和 `$$...$$` 渲染为行间公式。单行 `$$...$$` 也按行间公式渲染。单美元符号和 `math` 代码块保持普通 Markdown 行为。流式回复中的未闭合公式显示原文。
 
-这个目录集中存放 fork 的分隔符扫描、Markdown 接入、KaTeX 渲染和测试。应用源码仅在 `ChatMarkdown.tsx` 调用这里的代码。KaTeX 在消息首次出现完整公式时才加载。扫描器保持原文偏移量，让链接、指令和任务列表仍能对应原文位置。
+## 接入方式
 
-本 fork 以最新 stable 为代码基线，本地定制叠加在正式版上。自动合并每天只处理版本号最高的 stable 标签，排除 preview、nightly 和其他预发布版本。版本在临时检出中合并，重建锁文件，通过公式与聊天 Markdown 测试、Web 类型检查和构建后才更新主分支。已经包含的版本会跳过，验证期间主分支有新提交时会停止推送，下次重新验证。
+上游源码只改一行：`ChatMarkdown.tsx` 从 `../fork/math/ReactMarkdown` 导入 `ReactMarkdown`。这个包装组件和 react-markdown 用法相同，另外做两件事：
 
-冲突处理只覆盖 Web 依赖清单、锁文件和已知的公式接入点。其他本地改动继续参加三方合并，同字段依赖分歧或上游接入点重构需要人工处理。公式插件保留上游流式解析实例，避免每次消息更新都清空解析缓存。
+- 在上游 remark 插件之后追加 `remarkForkMath`。它接管解析器，先用 `scan.ts` 把公式替换成等长占位符再解析，链接、指令和任务列表仍对应原文偏移量。上游插件转换完成后，占位符还原为 `language-fork-math-*` 代码节点，这个类名能通过上游的 HTML 清理。
+- 包装 `code` 组件，公式交给 KaTeX，其他代码原样交回上游渲染器。KaTeX 在消息首次出现完整公式时才加载。
+
+上游如果不再使用 react-markdown，或改动 `code` 节点的渲染方式，自动合并会在冲突、类型检查或测试阶段停止，不会静默丢失公式渲染。
+
+## 自动合并
+
+本 fork 以最新 stable 为代码基线。`.github/workflows/fork-math-upstream.yml` 每天合并版本号最高的 stable 标签，排除 preview、nightly 和其他预发布版本。冲突只出现在 `apps/web/package.json` 或 `pnpm-lock.yaml` 时取上游版本，重新加入 katex 依赖并重建锁文件；其他冲突需要人工处理。通过公式与聊天 Markdown 测试、Web 类型检查和构建后才推送。已经包含的版本会跳过，验证期间主分支有新提交时会停止推送，下次重新验证。
 
 远端推送使用仅对本仓库生效的可写 deploy key，私钥保存在 Actions secret `UPSTREAM_SYNC_SSH_KEY`。普通 `GITHUB_TOKEN` 无法覆盖同步上游工作流文件所需的权限。
 
-本地检出可用 `git config --local core.hooksPath .githooks` 启用提交后自动推送。每次提交成功后，当前分支推送到 `origin` 的同名分支，游离 HEAD 不推送。推送失败会报告错误并保留本地提交，远端有新提交时需要先整合再重试，不会强制覆盖。用 `git config --local --unset core.hooksPath` 关闭。
+## 提交后自动推送
+
+本地检出可用 `git config --local core.hooksPath .githooks` 启用提交后自动推送。每次提交成功后，当前分支推送到 `origin` 的同名分支，游离 HEAD 不推送。推送失败会报告错误并保留本地提交，远端有新提交时需要先整合再重试，不会强制覆盖。用 `git config --local --unset core.hooksPath` 关闭。修改钩子后用 `node --test .githooks/post-commit.test.mjs` 验证。

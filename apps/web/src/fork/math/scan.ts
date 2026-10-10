@@ -1,6 +1,4 @@
 /** 在 CommonMark 处理转义前识别三种受支持的公式分隔符。 */
-import { LRUCache } from "../../lib/lruCache";
-
 export interface MathFormula {
   readonly start: number;
   readonly end: number;
@@ -20,24 +18,9 @@ const MATH_FILLER = "\ue001";
 const MATH_INDEX_BASE = 0xe100;
 const MAX_FORMULAS = 0xf8ff - MATH_INDEX_BASE + 1;
 
-const MAX_ANALYSIS_CACHE_ENTRIES = 200;
-const MAX_ANALYSIS_CACHE_MEMORY_BYTES = 8 * 1024 * 1024;
-
-/** 流式重绘可能重复分析同一段消息，因此按完整原文缓存结果。 */
-const analysisCache = new LRUCache<MathMarkdownAnalysis>(
-  MAX_ANALYSIS_CACHE_ENTRIES,
-  MAX_ANALYSIS_CACHE_MEMORY_BYTES,
-);
-
 export function analyzeMathMarkdown(text: string): MathMarkdownAnalysis {
-  if (!FAST_PATH_PATTERN.test(text)) {
-    return { markdown: text, formulas: [] };
-  }
-  const cached = analysisCache.get(text);
-  if (cached) return cached;
-  const analysis = analyze(text);
-  analysisCache.set(text, analysis, text.length * 3 + 64);
-  return analysis;
+  if (!FAST_PATH_PATTERN.test(text)) return { markdown: text, formulas: [] };
+  return analyze(text);
 }
 
 /** 公式分隔符在这段半开区间内不生效。 */

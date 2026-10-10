@@ -78,7 +78,7 @@ import type {
   ExtraProps as ReactMarkdownExtraProps,
   Options as ReactMarkdownOptions,
 } from "react-markdown";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown from "../fork/math/ReactMarkdown";
 import { toHtml } from "hast-util-to-html";
 import { createIncrementalMarkdownPlugin } from "../markdown-incremental";
 import { defaultUrlTransform } from "react-markdown";
@@ -137,8 +137,6 @@ import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
 import { getSyntaxHighlighterPromise } from "../lib/syntaxHighlighting";
-import { renderMathCode } from "../fork/math/render";
-import { useMathMarkdown } from "../fork/math/useMathMarkdown";
 import { GitHubIcon } from "./Icons";
 import { createIncrementalHighlightedDocument } from "../lib/incrementalHighlighting";
 import { HighlightedCodeLines } from "./chat/HighlightedCodeLines";
@@ -3147,14 +3145,6 @@ const CHAT_MARKDOWN_COMPONENTS = {
     const { cwd, imageBaseDir, inlineCodeFileLinkMetaByText, fileLinkChip } = use(
       ChatMarkdownRendererContext,
     );
-    if (className?.includes("language-fork-math-")) {
-      const math = renderMathCode({
-        className,
-        readTex: () => nodeToPlainText(children),
-        fallback: <code {...props}>{children}</code>,
-      });
-      if (math) return math;
-    }
     if (node?.properties?.dataInlineCode != null) {
       const codeText = nodeToPlainText(children);
       const fileLinkMeta =
@@ -3388,8 +3378,6 @@ function ChatMarkdown({
     [extraRemarkPlugins, incrementalParsing, lineBreaks],
   );
 
-  const math = useMathMarkdown(text, remarkPlugins);
-
   // react-markdown converts unparsed HTML nodes to text when skipHtml is false.
   // Keep that behavior explicit because literal mode depends on escaping the
   // complete source token instead of dropping it from the rendered message.
@@ -3406,13 +3394,13 @@ function ChatMarkdown({
     >
       <ChatMarkdownRendererContext value={componentState}>
         <ReactMarkdown
-          remarkPlugins={math.remarkPlugins}
+          remarkPlugins={remarkPlugins}
           rehypePlugins={parseRawHtml ? CHAT_MARKDOWN_REHYPE_PLUGINS : undefined}
           skipHtml={false}
           components={CHAT_MARKDOWN_COMPONENTS}
           urlTransform={markdownUrlTransform}
         >
-          {math.markdown}
+          {text}
         </ReactMarkdown>
       </ChatMarkdownRendererContext>
       {localMediaPreview ? (

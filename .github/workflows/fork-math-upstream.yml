@@ -15,5 +15,104 @@ concurrency:
 jobs:
   stable:
     if: github.repository == 'pomelo-akiyama/t3code'
-    uses: ./.github/workflows/fork-math-merge.yml
-    secrets: inherit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          ssh-key: ${{ secrets.UPSTREAM_SYNC_SSH_KEY }}
+
+      - name: 合并最新 stable
+        id: merge
+        run: |
+          git config user.name "upstream-sync[bot]"
+          git config user.email "upstream-sync@users.noreply.github.com"
+          git fetch --quiet --no-tags https://github.com/pingdotgg/t3code.git "refs/tags/v*:refs/tags/upstream/v*"
+          tag=$(git for-each-ref --format='%(refname:strip=3)' 'refs/tags/upstream/v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+          test -n "$tag"
+          sha=$(git rev-parse "refs/tags/upstream/$tag^{commit}")
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "base=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "katex=$(git show HEAD:apps/web/package.json | node -p 'JSON.parse(require("fs").readFileSync(0)).dependencies.katex')" >> "$GITHUB_OUTPUT"
+          if git merge-base --is-ancestor "$sha" HEAD; then
+            echo "$tag 已合并"
+            echo "pending=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! git merge --no-commit --no-ff "$sha"; then
+            # 依赖清单和锁文件取上游版本，下一步重新加入 katex 并重建锁文件。
+            conflicts=$(git diff --name-only --diff-filter=U)
+            test -n "$conflicts"
+            unexpected=$(printf '%s\n' "$conflicts" | grep -vxE 'apps/web/package\.json|pnpm-lock\.yaml' || true)
+            if test -n "$unexpected"; then
+              printf '需要人工处理的冲突：\n%s\n' "$unexpected" >&2
+              exit 1
+            fi
+            git checkout "$sha" -- $conflicts
+          fi
+          echo "pending=true" >> "$GITHUB_OUTPUT"
+
+      - name: 保留 katex 依赖
+        if: steps.merge.outputs.pending == 'true'
+        env:
+          KATEX: ${{ steps.merge.outputs.katex }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const file = "apps/web/package.json";
+            const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+            if (manifest.dependencies.katex) process.exit(0);
+            manifest.dependencies = Object.fromEntries(
+              Object.entries({ ...manifest.dependencies, katex: process.env.KATEX })
+                .sort(([a], [b]) => (a < b ? -1 : 1)),
+            );
+            fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n");
+          '
+
+      - uses: voidzero-dev/setup-vp@v1
+        if: steps.merge.outputs.pending == 'true'
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - name: 安装依赖并重建锁文件
+        if: steps.merge.outputs.pending == 'true'
+        run: vp install --no-frozen-lockfile
+
+      - name: 检查公式和聊天 Markdown
+        if: steps.merge.outputs.pending == 'true'
+        run: >
+          vp test run
+          apps/web/src/fork/math/
+          apps/web/src/components/ChatMarkdown.test.tsx
+          apps/web/src/markdown-clipboard.test.ts
+          apps/web/src/markdown-incremental.test.ts
+
+      - name: 检查 Web 类型
+        if: steps.merge.outputs.pending == 'true'
+        run: vp run --filter @t3tools/web typecheck
+
+      - name: 构建 Web
+        if: steps.merge.outputs.pending == 'true'
+        run: vp run --filter @t3tools/web build
+
+      - name: 提交并推送
+        if: steps.merge.outputs.pending == 'true'
+        env:
+          TAG: ${{ steps.merge.outputs.tag }}
+          BASE: ${{ steps.merge.outputs.base }}
+        run: |
+          git add apps/web/package.json pnpm-lock.yaml
+          git diff --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+          git commit -m "chore(fork): 跟进上游 $TAG 并保留公式支持"
+          git fetch origin main
+          if test "$(git rev-parse origin/main)" != "$BASE"; then
+            echo "验证期间 main 已更新，保留远端变更，下一次重新合并和验证" >&2
+            exit 1
+          fi
+          git push origin HEAD:refs/heads/main
+          echo "已合并并验证 $TAG" >> "$GITHUB_STEP_SUMMARY"
