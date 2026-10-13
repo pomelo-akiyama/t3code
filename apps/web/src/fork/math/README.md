@@ -11,6 +11,16 @@
 
 上游如果不再使用 react-markdown，或改动 `code` 节点的渲染方式，自动合并会在冲突、类型检查或测试阶段停止，不会静默丢失公式渲染。
 
+## MacBook 共用官方后端
+
+`scripts/fork-math-launcher.sh` 提供启动、停止、更新和配对菜单，桌面的 `T3 Code 公式版.command` 调用它。先打开官方 T3 Code，再启动公式网页，访问 `http://127.0.0.1:3774/`；首次使用一个浏览器时选择“首次配对 / 重新连接官方 T3”。
+
+`scripts/fork-math-browser.mjs` 使用 Vite preview 提供已构建的网页，将 `/api`、`/oauth`、`/.well-known` 和 `/ws` 转发到官方 `127.0.0.1:3773`。只监听本机，保留原 Host 和 Origin，认证由官方后端处理。聊天、项目、Provider 和终端共用官方运行状态；浏览器偏好和远程环境连接列表仍属于各客户端。
+
+更新只构建 Web，按官方后端报告的版本设置 `APP_VERSION`，并检查对应 stable 标签的服务端和共享包与 fork 一致；不匹配时停止更新，先对齐 fork 与官方版本。启动时也检查构建版本。停止公式网页不会停止官方后端，官方桌面退出后网页无法工作。
+
+旧独立实例的 `~/.t3-math-browser` 保留，不再由该启动器使用，也不自动迁移或合并旧会话。启动器的 PID 与日志留在 `~/Library/Application Support/T3 Code Math Launcher/`，配对凭据不写入文件。
+
 ## 自动合并
 
 本 fork 以最新 stable 为代码基线。`.github/workflows/fork-math-upstream.yml` 每天合并版本号最高的 stable 标签，排除 preview、nightly 和其他预发布版本。冲突只出现在 `apps/web/package.json` 或 `pnpm-lock.yaml` 时取上游版本，重新加入 katex 依赖并重建锁文件；其他冲突需要人工处理。通过公式与聊天 Markdown 测试、Web 类型检查和构建后才推送。已经包含的版本会跳过，验证期间主分支有新提交时会停止推送，下次重新验证。
