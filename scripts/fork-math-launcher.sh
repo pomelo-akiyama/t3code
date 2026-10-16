@@ -43,6 +43,24 @@ official_version() {
   '
 }
 
+# vp lives in node_modules, so an interrupted install removes it. Fall back to
+# the pnpm that vite-plus cached for the pinned packageManager version.
+install_deps() {
+  local pnpm_version pnpm_bin
+  if [[ -x "$FORK_ROOT/node_modules/.bin/vp" ]]; then
+    (cd "$FORK_ROOT" && vp install --frozen-lockfile)
+    return
+  fi
+  pnpm_version="$(node -p 'require(process.argv[1]).packageManager.split("@")[1]' "$FORK_ROOT/package.json")" || return 1
+  pnpm_bin="$HOME/.vite-plus/package_manager/pnpm/$pnpm_version/pnpm/bin/pnpm"
+  if [[ ! -x "$pnpm_bin" ]]; then
+    printf '依赖不完整且找不到 vp 或缓存的 pnpm %s，请手动安装依赖。\n' "$pnpm_version" >&2
+    return 1
+  fi
+  printf '依赖不完整，改用缓存的 pnpm %s 安装…\n' "$pnpm_version"
+  (cd "$FORK_ROOT" && "$pnpm_bin" install --frozen-lockfile)
+}
+
 check_build() {
   local version
   version="$(official_version)" || return 1
@@ -142,7 +160,7 @@ update_server() {
     printf 'fork 与官方 %s 的后端或协议源码不同，已停止构建。请先对齐版本。\n' "$version" >&2
     return 1
   fi
-  (cd "$FORK_ROOT" && vp install --frozen-lockfile) || return 1
+  install_deps || return 1
   if running_pid >/dev/null; then was_running=1; stop_server || return 1; fi
   rm -f "$FORK_BUILD_FILE"
   printf '正在构建与官方 %s 配套的公式网页…\n' "$version"
