@@ -9,7 +9,8 @@ FORK_PID_FILE="$FORK_STATE_DIR/web.pid"
 FORK_LOG_FILE="$FORK_STATE_DIR/web.log"
 FORK_BUILD_FILE="$FORK_ROOT/apps/web/dist/math-build.json"
 FORK_URL="http://127.0.0.1:3774"
-OFFICIAL_APP="/Applications/T3 Code (Alpha).app"
+OFFICIAL_NAME="T3 Code (Beta)"
+OFFICIAL_APP="/Applications/$OFFICIAL_NAME.app"
 export PATH="$FORK_ROOT/node_modules/.bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 mkdir -p "$FORK_STATE_DIR"
 
@@ -157,7 +158,7 @@ pair_browser() {
   start_server || return 1
   # Use the installed official CLI to mint a short-lived pairing link.
   # Keep credentials out of logs and the launcher state directory.
-  ELECTRON_RUN_AS_NODE=1 "$OFFICIAL_APP/Contents/MacOS/T3 Code (Alpha)" \
+  ELECTRON_RUN_AS_NODE=1 "$OFFICIAL_APP/Contents/MacOS/$OFFICIAL_NAME" \
     "$OFFICIAL_APP/Contents/Resources/app.asar/apps/server/dist/bin.mjs" \
     auth pairing create --base-dir "$HOME/.t3" --ttl 5m \
     --label 'MacBook 公式网页' --base-url "$FORK_URL" --json |
