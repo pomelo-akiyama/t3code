@@ -176,9 +176,17 @@ pair_browser() {
   start_server || return 1
   # Use the installed official CLI to mint a short-lived pairing link.
   # Keep credentials out of logs and the launcher state directory.
+  # Grant every scope the desktop app holds; the default set cannot manage access or relay.
+  local scope scope_args=()
+  for scope in orchestration:read orchestration:operate settings:write providers:manage \
+    environment:maintain preview:operate diagnostics:read terminal:read terminal:operate \
+    source-control:write filesystem:read filesystem:write access:read access:write \
+    relay:read relay:write; do
+    scope_args+=(--scope "$scope")
+  done
   ELECTRON_RUN_AS_NODE=1 "$OFFICIAL_APP/Contents/MacOS/$OFFICIAL_NAME" \
     "$OFFICIAL_APP/Contents/Resources/app.asar/apps/server/dist/bin.mjs" \
-    auth pairing create --base-dir "$HOME/.t3" --ttl 5m \
+    auth pairing create --base-dir "$HOME/.t3" --ttl 5m "${scope_args[@]}" \
     --label 'MacBook 公式网页' --base-url "$FORK_URL" --json |
     node -e 'let s=""; process.stdin.on("data", d => s+=d); process.stdin.on("end", () => { try { const u=JSON.parse(s).pairUrl; if (!u) throw new Error(); require("node:child_process").execFileSync("/usr/bin/open", [u]); } catch { console.error("配对失败，请确认官方 T3 正在运行。"); process.exit(1); } });'
 }
