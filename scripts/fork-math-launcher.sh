@@ -9,6 +9,8 @@ FORK_PID_FILE="$FORK_STATE_DIR/web.pid"
 FORK_LOG_FILE="$FORK_STATE_DIR/web.log"
 FORK_BUILD_FILE="$FORK_ROOT/apps/web/dist/math-build.json"
 FORK_URL="http://127.0.0.1:3774"
+FORK_REPO="pomelo-akiyama/t3code"
+UPSTREAM_WORKFLOW="fork-math-upstream.yml"
 OFFICIAL_NAME="T3 Code (Beta)"
 OFFICIAL_APP="/Applications/$OFFICIAL_NAME.app"
 export PATH="$FORK_ROOT/node_modules/.bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
@@ -144,6 +146,25 @@ stop_server() {
   return 1
 }
 
+# Run the daily upstream-merge workflow now, so merging and verification stay
+# in CI. gh does not print the dispatched run id, so wait for a newer run.
+merge_upstream() {
+  local previous run_id attempt
+  command -v gh >/dev/null || { printf 'fork 尚未合并官方 %s，需要 gh 才能自动合并。\n' "$1" >&2; return 1; }
+  previous="$(gh run list -R "$FORK_REPO" --workflow "$UPSTREAM_WORKFLOW" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // empty')" || return 1
+  gh workflow run "$UPSTREAM_WORKFLOW" -R "$FORK_REPO" --ref main || return 1
+  for ((attempt=0; attempt<30; attempt++)); do
+    sleep 2
+    run_id="$(gh run list -R "$FORK_REPO" --workflow "$UPSTREAM_WORKFLOW" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // empty')" || return 1
+    [[ -n "$run_id" && "$run_id" != "$previous" ]] && break
+    run_id=
+  done
+  [[ -n "$run_id" ]] || { printf '找不到刚触发的自动合并任务。\n' >&2; return 1; }
+  printf 'fork 尚未合并官方 %s，正在 GitHub 上自动合并并验证（约 4 分钟）：\nhttps://github.com/%s/actions/runs/%s\n' "$1" "$FORK_REPO" "$run_id"
+  gh run watch "$run_id" -R "$FORK_REPO" --exit-status --interval 15 >/dev/null 2>&1 ||
+    { printf '自动合并失败，请查看上面的链接。\n' >&2; return 1; }
+}
+
 update_server() {
   local version ref was_running=0
   [[ "$(git -C "$FORK_ROOT" branch --show-current)" == main ]] || { printf '请先切回 main 分支。\n' >&2; return 1; }
@@ -154,10 +175,15 @@ update_server() {
   ref="refs/tags/v$version"
   git -C "$FORK_ROOT" rev-parse --verify "$ref" >/dev/null 2>&1 ||
     git -C "$FORK_ROOT" fetch upstream "refs/tags/v$version:refs/tags/v$version" || return 1
+  if ! git -C "$FORK_ROOT" merge-base --is-ancestor "$ref" HEAD; then
+    merge_upstream "$version" || return 1
+    git -C "$FORK_ROOT" fetch origin main || return 1
+    git -C "$FORK_ROOT" merge --ff-only origin/main || return 1
+  fi
   # Backend and contracts must match the installed release, not merely a
   # package.json version that upstream leaves unchanged between releases.
   if ! git -C "$FORK_ROOT" diff --quiet "$ref" HEAD -- apps/server packages; then
-    printf 'fork 与官方 %s 的后端或协议源码不同，已停止构建。请先对齐版本。\n' "$version" >&2
+    printf 'fork 与官方 %s 的后端或协议源码不同，已停止构建。若 fork 已跟进更新的上游版本，请先更新官方 T3 Code。\n' "$version" >&2
     return 1
   fi
   install_deps || return 1
